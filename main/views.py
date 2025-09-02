@@ -46,9 +46,6 @@ class ROS2NodeManager:
         msg = self.Bool()
         msg.data = True
         self.publisher.publish(msg)
-
-    def get_fsm_viewer_data(self):
-        return self.fsm_viewer_data
     
     def get_fsm_current_state(self):
         try:
@@ -58,7 +55,7 @@ class ROS2NodeManager:
                     state = data[data[0].current_state].name
                     return state
         except:
-            return 'Error retrieving state'
+            return None
 
 def user_page(request):
     # Set your YAML file paths here
