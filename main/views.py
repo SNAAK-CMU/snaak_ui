@@ -49,6 +49,16 @@ class ROS2NodeManager:
 
     def get_fsm_viewer_data(self):
         return self.fsm_viewer_data
+    
+    def get_fsm_current_state(self):
+        try:
+            if self.fsm_viewer_data:
+                data = self.fsm_viewer_data
+                if len(data) > 0:
+                    state = data[data[0].current_state].name
+                    return state
+        except:
+            return 'Error retrieving state'
 
 def user_page(request):
     # Set your YAML file paths here
@@ -76,7 +86,7 @@ def user_page(request):
             continue
         ingredients.append({'name': name, 'available': info.get('slices', 0)})
     bread_default = 2
-    if request.method == "POST":
+    if request.method == "POST": # TODO: wait for recipe to be done, and in the meantime disable the form (gray it out). Display the current state to the user instead
         try:
             data = yaml.safe_load(request.body) if request.body else request.POST
             # Enforce stock limits and bread default
