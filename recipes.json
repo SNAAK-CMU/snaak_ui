@@ -1,0 +1,12 @@
+{
+  "recipes": [
+    {
+      "name": "Custom Recipe",
+      "ingredients": {
+        "Flour": 1000,
+        "Sugar": 0,
+        "Salt": 0
+      }
+    }
+  ]
+}

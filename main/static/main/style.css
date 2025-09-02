@@ -1,0 +1,88 @@
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(120deg, #f8fafc 0%, #e0e7ef 100%);
+    margin: 0;
+    padding: 0;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f3f4f6;
+    color: #222e3a;
+    padding: 16px 32px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+.logo {
+    height: 48px;
+    margin-right: 0;
+}
+
+.top-right {
+    position: absolute;
+    top: 24px;
+    right: 32px;
+}
+
+.container {
+    max-width: 500px;
+    margin: 48px auto;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+    padding: 32px 40px 40px 40px;
+}
+
+h1 {
+    color: #1a2233;
+    font-size: 2.2em;
+    margin-bottom: 24px;
+}
+
+.ingredient-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.ingredient-row label {
+    font-weight: 500;
+    color: #2a3344;
+}
+
+input[type="number"] {
+    width: 80px;
+    padding: 6px 10px;
+    border: 1px solid #bfc9d9;
+    border-radius: 6px;
+    font-size: 1em;
+    background: #f6f8fa;
+}
+
+button {
+    background: #2e7d32;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 22px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+button:hover {
+    background: #256025;
+}
+
+.success-message {
+    background: #e6f9ea;
+    color: #217a3b;
+    border: 1px solid #b2e2c7;
+    border-radius: 6px;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    font-weight: 500;
+}

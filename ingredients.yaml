@@ -1,0 +1,7 @@
+ingredients:
+  - name: Flour
+    available: 1000
+  - name: Sugar
+    available: 500
+  - name: Salt
+    available: 200

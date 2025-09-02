@@ -1,0 +1,68 @@
+{% load static %}
+{% load get_item %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User Page</title>
+    <link rel="stylesheet" href="{% static 'main/style.css' %}">
+    <style>
+        .center-btn {
+            display: flex;
+            justify-content: center;
+            margin-top: 24px;
+        }
+    </style>
+    <script>
+    function startRecipe() {
+        const ingredientRows = document.querySelectorAll('.ingredient-row');
+        let recipe = {};
+        ingredientRows.forEach(row => {
+            const label = row.querySelector('label');
+            const input = row.querySelector('input');
+            if (label && input) {
+                recipe[label.getAttribute('data-name')] = parseInt(input.value) || 0;
+            }
+        });
+        fetch("", {
+            method: "POST",
+            headers: {"Content-Type": "application/json", 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify(recipe)
+        })
+        .then(resp => resp.json())
+        .then(data => {
+            if (data.status === "success") {
+                alert("Recipe saved!");
+            } else {
+                alert("Error saving recipe.");
+            }
+        })
+        .catch(() => alert("Error saving recipe."));
+        return false;
+    }
+    </script>
+</head>
+<body>
+    <div class="header">
+        <img src="{% static 'main/snaak_logo.png' %}" class="logo" alt="Snaak Logo">
+        <div>
+            <a href="{% url 'operator_page' %}"><button>Operator Page</button></a>
+        </div>
+    </div>
+    <div class="container">
+        <h1>Build Your Sandwich</h1>
+        {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
+        <form onsubmit="return startRecipe();">
+            {% csrf_token %}
+            {% for ingredient in ingredients %}
+                <div class="ingredient-row">
+                    <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
+                    <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                </div>
+            {% endfor %}
+            <div class="center-btn">
+                <button type="submit" style="background: #1976d2;">Start Recipe</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

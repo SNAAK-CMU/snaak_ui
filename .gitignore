@@ -1,0 +1,4 @@
+db.sqlite3
+recipes.yaml
+stock.yaml
+__pycache__
