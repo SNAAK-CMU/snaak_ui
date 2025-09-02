@@ -3,6 +3,52 @@ import yaml
 import os
 from django.conf import settings
 from django.http import JsonResponse, HttpResponseBadRequest
+import threading
+
+class ROS2NodeManager:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(self):
+        import rclpy
+        from std_msgs.msg import Bool, String
+        self.rclpy = rclpy
+        self.Bool = Bool
+        self.String = String
+        rclpy.init(args=None)
+        self.node = rclpy.create_node('django_ros2_node')
+        self.publisher = self.node.create_publisher(Bool, 'start_recipe', 10)
+        self.fsm_viewer_data = None
+        self.node.create_subscription(
+            String,
+            '/fsm_viewer',
+            self.fsm_viewer_callback,
+            10
+        )
+        self._spin_thread = threading.Thread(target=self._spin, daemon=True)
+        self._spin_thread.start()
+
+    def _spin(self):
+        while self.rclpy.ok():
+            self.rclpy.spin_once(self.node, timeout_sec=0.1)
+
+    def fsm_viewer_callback(self, msg):
+        self.fsm_viewer_data = msg.data
+
+    @classmethod
+    def get_instance(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = ROS2NodeManager()
+            return cls._instance
+
+    def publish_start_recipe(self):
+        msg = self.Bool()
+        msg.data = True
+        self.publisher.publish(msg)
+
+    def get_fsm_viewer_data(self):
+        return self.fsm_viewer_data
 
 def user_page(request):
     # Set your YAML file paths here
@@ -44,6 +90,7 @@ def user_page(request):
                     new_recipe.append({name: qty})
             with open(recipe_path, 'w') as f:
                 yaml.dump({'recipe': new_recipe}, f)
+            ROS2NodeManager.get_instance().publish_start_recipe()
             return JsonResponse({"status": "success"})
         except Exception as e:
             return HttpResponseBadRequest(str(e))
