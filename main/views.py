@@ -16,7 +16,7 @@ class ROS2NodeManager:
         self.Bool = Bool
         self.String = String
         rclpy.init(args=None)
-        self.node = rclpy.create_node('django_ros2_node')
+        self.node = rclpy.create_node('django_node')
         self.publisher = self.node.create_publisher(Bool, 'start_recipe', 10)
         self.fsm_viewer_data = None
         self.node.create_subscription(
@@ -83,7 +83,12 @@ def user_page(request):
             continue
         ingredients.append({'name': name, 'available': info.get('slices', 0)})
     bread_default = 2
-    if request.method == "POST": # TODO: wait for recipe to be done, and in the meantime disable the form (gray it out). Display the current state to the user instead
+    # Get FSM state from ROS2
+    fsm_state = ROS2NodeManager.get_instance().get_fsm_current_state()
+    state_is_recipe = (fsm_state == "recipe")
+
+    # post signifies that form/button submitted on page
+    if request.method == "POST": # only one button so do not have to differentiate actions
         try:
             data = yaml.safe_load(request.body) if request.body else request.POST
             # Enforce stock limits and bread default
@@ -101,12 +106,13 @@ def user_page(request):
             return JsonResponse({"status": "success"})
         except Exception as e:
             return HttpResponseBadRequest(str(e))
-    return render(request, 'user_page.html', {
+    return render(request, 'user_page.html', { # update fields used by html
         'ingredients': ingredients,
         'recipe': recipe,
         'bread_default': bread_default,
         'stock_path': stock_path,
-        'recipe_path': recipe_path
+        'recipe_path': recipe_path,
+        'fsm_state': fsm_state,
     })
 
 def operator_page(request):

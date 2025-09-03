@@ -2,6 +2,7 @@
 {% load get_item %}
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>User Page</title>
     <link rel="stylesheet" href="{% static 'main/style.css' %}">
@@ -13,34 +14,35 @@
         }
     </style>
     <script>
-    function startRecipe() {
-        const ingredientRows = document.querySelectorAll('.ingredient-row');
-        let recipe = {};
-        ingredientRows.forEach(row => {
-            const label = row.querySelector('label');
-            const input = row.querySelector('input');
-            if (label && input) {
-                recipe[label.getAttribute('data-name')] = parseInt(input.value) || 0;
-            }
-        });
-        fetch("", {
-            method: "POST",
-            headers: {"Content-Type": "application/json", 'X-CSRFToken': '{{ csrf_token }}'},
-            body: JSON.stringify(recipe)
-        })
-        .then(resp => resp.json())
-        .then(data => {
-            if (data.status === "success") {
-                alert("Recipe saved!");
-            } else {
-                alert("Error saving recipe.");
-            }
-        })
-        .catch(() => alert("Error saving recipe."));
-        return false;
-    }
+        function startRecipe() {
+            const ingredientRows = document.querySelectorAll('.ingredient-row');
+            let recipe = {};
+            ingredientRows.forEach(row => {
+                const label = row.querySelector('label');
+                const input = row.querySelector('input');
+                if (label && input) {
+                    recipe[label.getAttribute('data-name')] = parseInt(input.value) || 0;
+                }
+            });
+            fetch("", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", 'X-CSRFToken': '{{ csrf_token }}' },
+                body: JSON.stringify(recipe)
+            })
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        alert("Recipe saved!");
+                    } else {
+                        alert("Error saving recipe.");
+                    }
+                })
+                .catch(() => alert("Error saving recipe."));
+            return false;
+        }
     </script>
 </head>
+
 <body>
     <div class="header">
         <img src="{% static 'main/snaak_logo.png' %}" class="logo" alt="Snaak Logo">
@@ -54,15 +56,42 @@
         <form onsubmit="return startRecipe();">
             {% csrf_token %}
             {% for ingredient in ingredients %}
-                <div class="ingredient-row">
-                    <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
-                    <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
-                </div>
+            <div class="ingredient-row">
+                <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
+                <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}" {% if fsm_state != 'recipe' %}disabled{% endif %}>
+            </div>
             {% endfor %}
             <div class="center-btn">
-                <button type="submit" style="background: #1976d2;">Start Recipe</button>
+                <button type="submit" style="background: #1976d2;" {% if not state_is_recipe %}class="disabled"
+                    disabled{% endif %}>Start Recipe</button>
+                <style>
+                    .disabled {
+                        background: #e0e0e0 !important;
+                        color: #888 !important;
+                        pointer-events: none;
+                    }
+
+                    .ingredient-row input:disabled {
+                        background: #f3f3f3;
+                        color: #aaa;
+                    }
+                </style>
             </div>
         </form>
+        {% if fsm_state == 'fail' %}
+            <div style="text-align:center;color:#fff;background:#d32f2f;font-weight:bold;padding:16px 0;margin-top:16px;border-radius:8px;font-size:1.2em;">
+                Fail State, Contact Operator
+            </div>
+        {% elif fsm_state != 'recipe' and fsm_state %}
+            <div style="text-align:center;color:#155724;background:#d4edda;border:1px solid #c3e6cb;padding:16px 0;margin-top:16px;border-radius:8px;font-weight:bold;font-size:1.1em;">
+                Sandwich In Progress... (Current State: <b>{{ fsm_state }}</b>)
+            </div>
+        {% elif not fsm_state %}
+            <div style="text-align:center;color:#856404;background:#fff3cd;border:1px solid #ffeeba;padding:16px 0;margin-top:16px;border-radius:8px;font-weight:bold;font-size:1.1em;">
+                System Initializing... Please wait.
+            </div>
+        {% endif %}
     </div>
 </body>
+
 </html>
