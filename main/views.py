@@ -4,23 +4,23 @@ import os
 from django.conf import settings
 from django.http import JsonResponse, HttpResponseBadRequest
 import threading
+from yasmin_msgs.msg import StateMachine
+import rclpy
+from std_msgs.msg import Bool
+from django.views.decorators.http import require_GET
 
 class ROS2NodeManager:
     _instance = None
     _lock = threading.Lock()
 
     def __init__(self):
-        import rclpy
-        from std_msgs.msg import Bool, String
         self.rclpy = rclpy
-        self.Bool = Bool
-        self.String = String
         rclpy.init(args=None)
-        self.node = rclpy.create_node('django_node')
-        self.publisher = self.node.create_publisher(Bool, 'start_recipe', 10)
-        self.fsm_viewer_data = None
+        self.node = rclpy.create_node('snaak_ui')
+        self.publisher = self.node.create_publisher(Bool, 'snaak_ui/start_recipe', 10)
+        self.fsm_state = None
         self.node.create_subscription(
-            String,
+            StateMachine,
             '/fsm_viewer',
             self.fsm_viewer_callback,
             10
@@ -33,7 +33,11 @@ class ROS2NodeManager:
             self.rclpy.spin_once(self.node, timeout_sec=0.1)
 
     def fsm_viewer_callback(self, msg):
-        self.fsm_viewer_data = msg.data
+        fsm_viewer_states = msg.states
+        if len(fsm_viewer_states) > 0:
+            self.fsm_state = fsm_viewer_states[fsm_viewer_states[0].current_state].name
+        else:
+            self.fsm_state = None
 
     @classmethod
     def get_instance(cls):
@@ -43,24 +47,14 @@ class ROS2NodeManager:
             return cls._instance
 
     def publish_start_recipe(self):
-        msg = self.Bool()
+        msg = Bool()
         msg.data = True
         self.publisher.publish(msg)
     
-    def get_fsm_current_state(self):
-        try:
-            if self.fsm_viewer_data:
-                data = self.fsm_viewer_data
-                if len(data) > 0:
-                    state = data[data[0].current_state].name
-                    return state
-        except:
-            return None
-
 def user_page(request):
     # Set your YAML file paths here
-    stock_path = 'stock.yaml'
-    recipe_path = 'recipes.yaml'
+    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
+    recipe_path = '/home/snaak/Documents/recipe/recipe.yaml'
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
@@ -83,9 +77,6 @@ def user_page(request):
             continue
         ingredients.append({'name': name, 'available': info.get('slices', 0)})
     bread_default = 2
-    # Get FSM state from ROS2
-    fsm_state = ROS2NodeManager.get_instance().get_fsm_current_state()
-    state_is_recipe = (fsm_state == "recipe")
 
     # post signifies that form/button submitted on page
     if request.method == "POST": # only one button so do not have to differentiate actions
@@ -112,8 +103,13 @@ def user_page(request):
         'bread_default': bread_default,
         'stock_path': stock_path,
         'recipe_path': recipe_path,
-        'fsm_state': fsm_state,
     })
 
 def operator_page(request):
     return render(request, 'operator_page.html')
+
+@require_GET
+def fsm_state_api(request):
+    state = ROS2NodeManager.get_instance().fsm_state
+    print(state)
+    return JsonResponse({'fsm_state': state})

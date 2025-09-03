@@ -32,7 +32,7 @@
                 .then(resp => resp.json())
                 .then(data => {
                     if (data.status === "success") {
-                        alert("Recipe saved!");
+                        alert("Starting Recipe!");
                     } else {
                         alert("Error saving recipe.");
                     }
@@ -53,17 +53,17 @@
     <div class="container">
         <h1>Build Your Sandwich</h1>
         {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
-        <form onsubmit="return startRecipe();">
+        <div id="fsm-state-box" style="margin-bottom:16px;"></div>
+        <form id="recipe-form" onsubmit="return startRecipe();">
             {% csrf_token %}
             {% for ingredient in ingredients %}
             <div class="ingredient-row">
                 <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
-                <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}" {% if fsm_state != 'recipe' %}disabled{% endif %}>
+                <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
             </div>
             {% endfor %}
             <div class="center-btn">
-                <button type="submit" style="background: #1976d2;" {% if not state_is_recipe %}class="disabled"
-                    disabled{% endif %}>Start Recipe</button>
+                <button id="start-recipe-btn" type="submit" style="background: #1976d2;">Start Recipe</button>
                 <style>
                     .disabled {
                         background: #e0e0e0 !important;
@@ -78,20 +78,40 @@
                 </style>
             </div>
         </form>
-        {% if fsm_state == 'fail' %}
-            <div style="text-align:center;color:#fff;background:#d32f2f;font-weight:bold;padding:16px 0;margin-top:16px;border-radius:8px;font-size:1.2em;">
-                Fail State, Contact Operator
-            </div>
-        {% elif fsm_state != 'recipe' and fsm_state %}
-            <div style="text-align:center;color:#155724;background:#d4edda;border:1px solid #c3e6cb;padding:16px 0;margin-top:16px;border-radius:8px;font-weight:bold;font-size:1.1em;">
-                Sandwich In Progress... (Current State: <b>{{ fsm_state }}</b>)
-            </div>
-        {% elif not fsm_state %}
-            <div style="text-align:center;color:#856404;background:#fff3cd;border:1px solid #ffeeba;padding:16px 0;margin-top:16px;border-radius:8px;font-weight:bold;font-size:1.1em;">
-                System Initializing... Please wait.
-            </div>
-        {% endif %}
     </div>
+    <script>
+        function fetchFSMState() {
+            fetch('/fsm_state/')
+                .then(response => response.json())
+                .then(data => {
+                    let box = document.getElementById('fsm-state-box');
+                    let form = document.getElementById('recipe-form');
+                    let btn = document.getElementById('start-recipe-btn');
+                    let inputs = form.querySelectorAll('input[type="number"]');
+                    if (data.fsm_state !== 'Recipe') {
+                        // Gray out if not recipe
+                        if (data.fsm_state === 'Fail') {
+                            box.innerHTML = '<div style="color:#fff;background:#d32f2f;font-weight:bold;padding:16px 0;border-radius:8px;font-size:1.2em;">Fail State, Contact Operator</div>';
+                        } else if (data.fsm_state) {
+                            box.innerHTML = '<div style="color:#155724;background:#d4edda;border:1px solid #c3e6cb;padding:16px 0;border-radius:8px;font-weight:bold;font-size:1.1em;">Sandwich In Progress... (Current State: <b>' + data.fsm_state + '</b>)</div>';
+                        } else {
+                            box.innerHTML = '<div style="color:#856404;background:#fff3cd;border:1px solid #ffeeba;padding:16px 0;border-radius:8px;font-weight:bold;font-size:1.1em;">System Initializing... Please wait.</div>';
+                        }
+                        btn.classList.add('disabled');
+                        btn.disabled = true;
+                        inputs.forEach(input => input.disabled = true);
+                    } else {
+                        // Enable if recipe
+                        box.innerHTML = '';
+                        btn.classList.remove('disabled');
+                        btn.disabled = false;
+                        inputs.forEach(input => input.disabled = false);
+                    }
+                });
+        }
+        setInterval(fetchFSMState, 2000);
+        fetchFSMState();
+    </script>
 </body>
 
 </html>
