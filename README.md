@@ -33,3 +33,6 @@ Web UI for interacting with the SNAAK system
 
 7. **(Optional) Change YAML file locations:**
    If you want to use different locations for your YAML files, edit the `stock_path` and `recipe_path` variables at the top of the `user_page` view in `main/views.py`.
+
+8. **Symlink the segmentation folder in vision to one in the UI**
+   ln -s /home/snaak/Documents/manipulation_ws/src/snaak_vision/src/segmentation /home/snaak/Documents/snaak_ui/main/static/segmentation

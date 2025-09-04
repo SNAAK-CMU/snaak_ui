@@ -1,9 +1,30 @@
+<!-- TODO: When user hits restock, open popup. This popup will for each bin, select what ingredient is in it-->
+
 {% load static %}
 <!DOCTYPE html>
 <html>
 <head>
     <title>Operator Page</title>
     <link rel="stylesheet" href="{% static 'main/style.css' %}">
+    <style>
+        .container {
+            width: 60vw;
+            min-width: 600px;
+            max-width: 1200px;
+            margin: 32px auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+            padding: 32px;
+        }
+        .section-block {
+            background: #f7f7f7;
+            border-radius: 8px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }
+    </style>
 </head>
 <body>
     <div class="header">
@@ -14,7 +35,80 @@
     </div>
     <div class="container">
         <h1>Operator Page</h1>
-        <!-- Empty for now -->
+        <h2>Stock</h2>
+        <div class="section-block">
+            <div id="stock-block" style="margin-bottom:16px;"></div>
+            <div style="display:flex;justify-content:center;">
+                <button id="restock-btn" style="padding:8px 24px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Restock</button>
+            </div>
+        </div>
+        <h2>Debug Info</h2>
+        <h3>Sandwich Check:</h3>
+        <div class="section-block" id="sandwich-check" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
+        <h3>State:</h3>
+        <div class="section-block" id="fsm-state" style="font-size:1.2em;font-weight:bold;margin-bottom:24px;">--</div>
+        <h3>Weights:</h3>
+        <div class="section-block" id="weights-block" style="margin-bottom:16px;">
+            <b>Assembly Weight:</b> <span id="assembly-weight">--</span> g<br>
+            <b>Bin Weight:</b> <span id="bin-weight">--</span> g
+        </div>
     </div>
+    <script>
+    function fetchWeights() {
+        fetch('/weight_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                document.getElementById('assembly-weight').textContent = data.assembly_weight;
+                document.getElementById('bin-weight').textContent = data.bin_weight;
+            });
+    }
+    function fetchFSMState() {
+        fetch('/fsm_state/')
+            .then(response => response.json())
+            .then(function(data) {
+                document.getElementById('fsm-state').textContent = data.fsm_state || '--';
+            });
+    }
+    function fetchIngredientImages() {
+        fetch('/ingredient_images_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                let container = document.getElementById('sandwich-check');
+                container.innerHTML = '';
+                if (data.ingredient_images.length === 0) {
+                    container.innerHTML = '<div>No check images found.</div>';
+                } else {
+                    data.ingredient_images.forEach(function(img) {
+                        container.innerHTML += `<div style="text-align:center;"><img src="/static/segmentation/${img}" alt="${img}" style="max-width:300px;max-height:300px;border:1px solid #ccc;border-radius:8px;" /><div style="margin-top:8px;font-weight:bold;">${img.replace('_check_image.jpg','')}</div></div>`;
+                    });
+                }
+            });
+    }
+    function fetchStock() {
+        fetch('/stock_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                let block = document.getElementById('stock-block');
+                if (data.stock) {
+                    let html = '<ul style="list-style:none;padding-left:0;">';
+                    for (const [name, qty] of Object.entries(data.stock)) {
+                        html += `<li><b>${name}:</b> ${qty}</li>`;
+                    }
+                    html += '</ul>';
+                    block.innerHTML = html;
+                } else {
+                    block.innerHTML = '<div style="color:red;">Error loading stock.</div>';
+                }
+            });
+    }
+    setInterval(fetchWeights, 2000);
+    setInterval(fetchFSMState, 2000);
+    setInterval(fetchIngredientImages, 2000);
+    setInterval(fetchStock, 2000);
+    fetchWeights();
+    fetchFSMState();
+    fetchIngredientImages();
+    fetchStock();
+    </script>
 </body>
 </html>
