@@ -6,10 +6,12 @@ from django.http import JsonResponse, HttpResponseBadRequest
 import threading
 from yasmin_msgs.msg import StateMachine
 import rclpy
-from std_msgs.msg import Bool
-from django.views.decorators.http import require_GET
+from std_msgs.msg import Bool, String
+from django.views.decorators.http import require_GET, require_POST
 from snaak_weight_read.srv import ReadWeight
 import glob
+import json
+from django.views.decorators.csrf import csrf_exempt
 
 class ROS2NodeManager:
     _instance = None
@@ -19,7 +21,8 @@ class ROS2NodeManager:
         self.rclpy = rclpy
         rclpy.init(args=None)
         self.node = rclpy.create_node('snaak_ui')
-        self.publisher = self.node.create_publisher(Bool, 'snaak_ui/start_recipe', 10)
+        self.publisher_start_recipe = self.node.create_publisher(Bool, 'snaak_ui/start_recipe', 10)
+        self.publisher_toggle_restock = self.node.create_publisher(String, 'snaak_ui/toggle_restock', 10)
         self.fsm_state = None
         self.node.create_subscription(
             StateMachine,
@@ -33,6 +36,10 @@ class ROS2NodeManager:
         self.node.weight_bins_client = self.node.create_client(
             ReadWeight, "/snaak_weight_read/snaak_scale_bins/read_weight"
         )
+
+        self.assembly_weight = None
+        self.bin_weight = None
+        self._weight_lock = threading.Lock()
 
         self._spin_thread = threading.Thread(target=self._spin, daemon=True)
         self._spin_thread.start()
@@ -58,34 +65,73 @@ class ROS2NodeManager:
     def publish_start_recipe(self):
         msg = Bool()
         msg.data = True
-        self.publisher.publish(msg)
+        self.publisher_start_recipe.publish(msg)
+    
+    def publish_toggle_restock(self, state):
+        msg = String()
+        msg.data = state
+        self.publisher_toggle_restock.publish(msg)
 
-    def get_weight(self):
+    def get_weight(self, timeout=2.0):
+        # Use threading.Event to block until callback sets result
+        # have to to async, since node is being spun in seperate thread
+        assembly_event = threading.Event()
+        bin_event = threading.Event()
+        result_holder = {'assembly': None, 'bin': None}
+
+        def assembly_cb(future):
+            result = future.result()
+            with self._weight_lock:
+                self.assembly_weight = result.weight.data if result else None
+                result_holder['assembly'] = self.assembly_weight
+            assembly_event.set()
+
+        def bin_cb(future):
+            result = future.result()
+            with self._weight_lock:
+                self.bin_weight = result.weight.data if result else None
+                result_holder['bin'] = self.bin_weight
+            bin_event.set()
+
         read_weight = ReadWeight.Request()
-        future = self.node.weight_assembly_client.call_async(read_weight)
-        rclpy.spin_until_future_complete(self.node, future)
-        result = future.result()
+        future_assembly = self.node.weight_assembly_client.call_async(read_weight)
+        future_assembly.add_done_callback(assembly_cb)
 
-        assembly_weight = result.weight.data
+        future_bin = self.node.weight_bins_client.call_async(read_weight)
+        future_bin.add_done_callback(bin_cb)
 
-        read_weight = ReadWeight.Request()
-        future = self.node.weight_bins_client.call_async(read_weight)
-        rclpy.spin_until_future_complete(self.node, future)
-        result = future.result()
-
-        bin_weight = result.weight.data
-
-        return (assembly_weight, bin_weight)
+        assembly_event.wait(timeout)
+        bin_event.wait(timeout)
+        print(result_holder['bin'])
+        return result_holder['assembly'], result_holder['bin']
     
 def user_page(request):
     # Set your YAML file paths here
-    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
+    stock_path = '/home/snaak/Documents/recipe/test.yaml'
     recipe_path = '/home/snaak/Documents/recipe/recipe.yaml'
+    restock_warning = None
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
     except Exception as e:
         return render(request, 'user_page.html', {'error': f'Could not load stock file: {e}'})
+    # Find the ingredient with type 'bread'
+    bread_slices_raw = 0
+    for name, info in stock.get('ingredients', {}).items():
+        if info.get('type', '').lower() == 'bread':
+            bread_slices_raw = info.get('slices', 0)
+            break
+    try:
+        bread_slices = int(float(bread_slices_raw))
+    except (ValueError, TypeError):
+        bread_slices = 0
+    # Only show warning if in Recipe state and less than 2 slices
+    fsm_state = ROS2NodeManager.get_instance().fsm_state
+    if bread_slices < 2 and fsm_state == 'Recipe':
+        restock_warning = 'Restock is necessary. Please contact an operator.'
+    else:
+        restock_warning = None
+        
     try:
         with open(recipe_path) as f:
             recipe_data = yaml.safe_load(f)
@@ -98,10 +144,12 @@ def user_page(request):
             recipe.update(entry)
     # New: stock['ingredients'] is a dict
     ingredients = []
+    bread_ingredients = []
     for name, info in stock.get('ingredients', {}).items():
-        if name.lower() == 'bread':
-            continue
-        ingredients.append({'name': name, 'available': info.get('slices', 0)})
+        if info.get('type', '').lower() == 'bread':
+            bread_ingredients.append({'name': name, 'available': info.get('slices', 0), 'type': 'bread'})
+        else:
+            ingredients.append({'name': name, 'available': info.get('slices', 0), 'type': info.get('type', '')})
     bread_default = 2
 
     # post signifies that form/button submitted on page
@@ -110,7 +158,14 @@ def user_page(request):
             data = yaml.safe_load(request.body) if request.body else request.POST
             # Enforce stock limits and bread default
             new_recipe = []
-            new_recipe.append({'bread': bread_default})
+            # Get selected bread type from POST data
+            selected_bread = None
+            for bread in bread_ingredients:
+                if bread['name'] in data:
+                    selected_bread = bread['name']
+                    break
+            if selected_bread:
+                new_recipe.append({selected_bread: 2})
             for ing in ingredients:
                 name = ing['name']
                 max_qty = ing['available']
@@ -123,12 +178,14 @@ def user_page(request):
             return JsonResponse({"status": "success"})
         except Exception as e:
             return HttpResponseBadRequest(str(e))
-    return render(request, 'user_page.html', { # update fields used by html
+    return render(request, 'user_page.html', {
         'ingredients': ingredients,
+        'bread_ingredients': bread_ingredients,
         'recipe': recipe,
         'bread_default': bread_default,
         'stock_path': stock_path,
         'recipe_path': recipe_path,
+        'restock_warning': restock_warning,
     })
 
 def operator_page(request):
@@ -136,20 +193,43 @@ def operator_page(request):
     image_dir = os.path.join(settings.STATIC_ROOT or os.path.join(settings.BASE_DIR, 'main/static'), 'segmentation')
     image_pattern = os.path.join(image_dir, '*_check_image.jpg')
     images = glob.glob(image_pattern)
-    # Get just the filenames for static serving
     image_files = [os.path.basename(img) for img in images]
-    return render(request, 'operator_page.html', {'ingredient_images': image_files})
+    # Bread slice check
+    stock_path = '/home/snaak/Documents/recipe/test.yaml'
+    restock_warning = None
+    try:
+        with open(stock_path) as f:
+            stock = yaml.safe_load(f)
+        # Find the ingredient with type 'bread'
+        bread_slices_raw = 0
+        found_bread = False
+        for name, info in stock.get('ingredients', {}).items():
+            if info.get('type', '').lower() == 'bread':
+                bread_slices_raw = info.get('slices', 0)
+                found_bread = True
+                break
+        try:
+            bread_slices = int(float(bread_slices_raw))
+        except (ValueError, TypeError):
+            bread_slices = 0
+        fsm_state = ROS2NodeManager.get_instance().fsm_state
+        # Show warning if bread is missing or less than 2 and in Recipe state
+        if (not found_bread or bread_slices < 2) and fsm_state == 'Recipe':
+            restock_warning = 'Restock is necessary.'
+    except Exception:
+        pass
+    return render(request, 'operator_page.html', {'ingredient_images': image_files, 'restock_warning': restock_warning})
 
 @require_GET
 def stock_api(request):
-    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
+    stock_path = '/home/snaak/Documents/recipe/test.yaml'
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
         # Extract ingredient stock
         ingredients = stock.get('ingredients', {})
-        # Format: {name: available}
-        stock_data = {name: info.get('slices', 0) for name, info in ingredients.items()}
+        # Format: {name: info_dict} for each ingredient
+        stock_data = {name: info for name, info in ingredients.items()}
         return JsonResponse({'stock': stock_data})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
@@ -166,7 +246,7 @@ def fsm_state_api(request):
     return JsonResponse({'fsm_state': state})
 
 @require_GET
-def ingredient_images_api(request):
+def ingredient_images_api(request): # TODO: this is going to change when the ingredient names get changed, going to need some other way to do this
     image_dir = os.path.join(settings.STATIC_ROOT or os.path.join(settings.BASE_DIR, 'main/static'), 'segmentation')
     image_pattern = os.path.join(image_dir, '*_check_image.jpg')
     images = glob.glob(image_pattern)
@@ -186,3 +266,55 @@ def ingredient_images_api(request):
         if bread_img in image_files and bread_img not in filtered_images:
             filtered_images.append(bread_img)
     return JsonResponse({'ingredient_images': filtered_images})
+
+@require_GET
+def ingredient_info_api(request):
+    info_path = '/home/snaak/Documents/recipe/ingredients_info.yaml'
+    try:
+        with open(info_path) as f:
+            info = yaml.safe_load(f)
+        # Return full ingredient info dict for frontend use
+        if isinstance(info, dict) and 'ingredients' in info:
+            return JsonResponse({'ingredients': info['ingredients']})
+        elif isinstance(info, list):
+            return JsonResponse({'ingredients': info})
+        else:
+            return JsonResponse({'ingredients': {}})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+def update_stock_api(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+        if not isinstance(data, list):
+            return JsonResponse({'error': 'Invalid data format'}, status=400)
+        new_stock = {}
+        for entry in data:
+            ingredient = entry.get('ingredient', {})
+            name = ingredient.get('name')
+            if name == 'empty':
+                continue
+            slices = ingredient.get('slices', ingredient.get('total_slices', 0))
+            type_ = ingredient.get('type', '')
+            weight_per_slice = ingredient.get('weight_per_slice', 1)
+            if name:
+                new_stock[name] = {
+                    'slices': slices,
+                    'type': type_,
+                    'weight_per_slice': weight_per_slice
+                }
+        with open('/home/snaak/Documents/recipe/test.yaml', 'w') as f:
+            yaml.safe_dump({'ingredients': new_stock}, f)
+        return JsonResponse({'success': True})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+@require_GET
+def publish_toggle_restock_api(request):
+    state = request.GET.get('state', 'Start')
+    ROS2NodeManager.get_instance().publish_toggle_restock(state)
+    return JsonResponse({'status': 'published', 'state': state})

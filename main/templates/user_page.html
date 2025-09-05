@@ -12,14 +12,30 @@
             justify-content: center;
             margin-top: 24px;
         }
+
+        .disabled {
+            background: #e0e0e0 !important;
+            color: #888 !important;
+            pointer-events: none;
+        }
+
+        .ingredient-row input:disabled {
+            background: #f3f3f3;
+            color: #aaa;
+        }
     </style>
     <script>
         function startRecipe() {
             const ingredientRows = document.querySelectorAll('.ingredient-row');
             let recipe = {};
+            // Get bread type
+            const breadType = document.querySelector('input[name="bread_type"]:checked');
+            if (breadType) {
+                recipe[breadType.value] = 2;
+            }
             ingredientRows.forEach(row => {
-                const label = row.querySelector('label');
-                const input = row.querySelector('input');
+                const label = row.querySelector('label[data-name]');
+                const input = row.querySelector('input[type="number"]');
                 if (label && input) {
                     recipe[label.getAttribute('data-name')] = parseInt(input.value) || 0;
                 }
@@ -40,46 +56,7 @@
                 .catch(() => alert("Error saving recipe."));
             return false;
         }
-    </script>
-</head>
 
-<body>
-    <div class="header">
-        <img src="{% static 'main/snaak_logo.png' %}" class="logo" alt="Snaak Logo">
-        <div>
-            <a href="{% url 'operator_page' %}"><button>Operator Page</button></a>
-        </div>
-    </div>
-    <div class="container">
-        <h1>Build Your Sandwich</h1>
-        {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
-        <div id="fsm-state-box" style="margin-bottom:16px;"></div>
-        <form id="recipe-form" onsubmit="return startRecipe();">
-            {% csrf_token %}
-            {% for ingredient in ingredients %}
-            <div class="ingredient-row">
-                <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
-                <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
-            </div>
-            {% endfor %}
-            <div class="center-btn">
-                <button id="start-recipe-btn" type="submit" style="background: #1976d2;">Start Recipe</button>
-                <style>
-                    .disabled {
-                        background: #e0e0e0 !important;
-                        color: #888 !important;
-                        pointer-events: none;
-                    }
-
-                    .ingredient-row input:disabled {
-                        background: #f3f3f3;
-                        color: #aaa;
-                    }
-                </style>
-            </div>
-        </form>
-    </div>
-    <script>
         function fetchFSMState() {
             fetch('/fsm_state/')
                 .then(response => response.json())
@@ -91,7 +68,7 @@
                     if (data.fsm_state !== 'Recipe') {
                         // Gray out if not recipe
                         if (data.fsm_state === 'Fail') {
-                            box.innerHTML = '<div style="color:#fff;background:#d32f2f;font-weight:bold;padding:16px 0;border-radius:8px;font-size:1.2em;">Fail State, Contact Operator</div>';
+                            box.innerHTML = '<div style="color:#fff;background:#d32f2f;font-weight:bold;padding:16px 0;border-radius:8px;font-size:1.2em;">Fail State. Contact Operator.</div>';
                         } else if (data.fsm_state) {
                             box.innerHTML = '<div style="color:#155724;background:#d4edda;border:1px solid #c3e6cb;padding:16px 0;border-radius:8px;font-weight:bold;font-size:1.1em;">Sandwich In Progress... (Current State: <b>' + data.fsm_state + '</b>)</div>';
                         } else {
@@ -112,6 +89,53 @@
         setInterval(fetchFSMState, 2000);
         fetchFSMState();
     </script>
+</head>
+
+<body>
+    <div class="header">
+        <img src="{% static 'main/snaak_logo.png' %}" class="logo" alt="Snaak Logo">
+        <div>
+            <a href="{% url 'operator_page' %}"><button>Operator Page</button></a>
+        </div>
+    </div>
+    <div class="container">
+        {% if restock_warning %}
+        <div style="background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
+            {{ restock_warning }}
+        </div>
+        {% endif %}
+        <h1>Build Your Sandwich</h1>
+        {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
+        <div id="fsm-state-box" style="margin-bottom:16px;"></div>
+        <form id="recipe-form" onsubmit="return startRecipe();">
+            {% csrf_token %}
+            {% for ingredient in ingredients %}
+                {% if ingredient.type != 'bread' %}
+                <div class="ingredient-row">
+                    <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
+                    <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                </div>
+                {% endif %}
+            {% endfor %}
+            {% with bread_types=ingredients|dictsort:"name" %}
+            {% if bread_ingredients %}
+            <div class="ingredient-row">
+                <label>Bread Type:</label>
+                {% for ingredient in bread_ingredients %}
+                    {% if ingredient.available|default:0 >= 2 %}
+                        <label style="margin-right:16px;">
+                            <input type="radio" name="bread_type" value="{{ ingredient.name }}" {% if forloop.first %}checked{% endif %}> {{ ingredient.name }} (Available: {{ ingredient.available }})
+                        </label>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+            <div class="center-btn">
+                <button id="start-recipe-btn" type="submit" style="background: #1976d2;">Start Recipe</button>
+            </div>
+        </form>
+    </div>
 </body>
 
 </html>
