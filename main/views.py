@@ -33,12 +33,16 @@ class ROS2NodeManager:
         self.node.weight_assembly_client = self.node.create_client(
             ReadWeight, "/snaak_weight_read/snaak_scale_assembly/read_weight"
         )
-        self.node.weight_bins_client = self.node.create_client(
-            ReadWeight, "/snaak_weight_read/snaak_scale_bins/read_weight"
+        # Two bin scales: right for bins 1-3, left for bins 4-6
+        self.node.weight_bins_right_client = self.node.create_client(
+            ReadWeight, "/snaak_weight_read/snaak_scale_bins_right/read_weight"
         )
-
+        self.node.weight_bins_left_client = self.node.create_client(
+            ReadWeight, "/snaak_weight_read/snaak_scale_bins_left/read_weight"
+        )
         self.assembly_weight = None
-        self.bin_weight = None
+        self.left_bin_weight = None
+        self.right_bin_weight = None
         self._weight_lock = threading.Lock()
 
         self._spin_thread = threading.Thread(target=self._spin, daemon=True)
@@ -76,8 +80,9 @@ class ROS2NodeManager:
         # Use threading.Event to block until callback sets result
         # have to to async, since node is being spun in seperate thread
         assembly_event = threading.Event()
-        bin_event = threading.Event()
-        result_holder = {'assembly': None, 'bin': None}
+        right_event = threading.Event()
+        left_event = threading.Event()
+        result_holder = {'assembly': None, 'left': None, 'right': None}
 
         def assembly_cb(future):
             result = future.result()
@@ -86,29 +91,39 @@ class ROS2NodeManager:
                 result_holder['assembly'] = self.assembly_weight
             assembly_event.set()
 
-        def bin_cb(future):
+        def right_cb(future):
             result = future.result()
             with self._weight_lock:
-                self.bin_weight = result.weight.data if result else None
-                result_holder['bin'] = self.bin_weight
-            bin_event.set()
+                self.right_bin_weight = result.weight.data if result else None
+                result_holder['right'] = self.right_bin_weight
+            right_event.set()
+
+        def left_cb(future):
+            result = future.result()
+            with self._weight_lock:
+                self.left_bin_weight = result.weight.data if result else None
+                result_holder['left'] = self.left_bin_weight
+            left_event.set()
 
         read_weight = ReadWeight.Request()
         future_assembly = self.node.weight_assembly_client.call_async(read_weight)
         future_assembly.add_done_callback(assembly_cb)
 
-        future_bin = self.node.weight_bins_client.call_async(read_weight)
-        future_bin.add_done_callback(bin_cb)
+        future_right = self.node.weight_bins_right_client.call_async(read_weight)
+        future_right.add_done_callback(right_cb)
+
+        future_left = self.node.weight_bins_left_client.call_async(read_weight)
+        future_left.add_done_callback(left_cb)
 
         assembly_event.wait(timeout)
-        bin_event.wait(timeout)
-        print(result_holder['bin'])
-        return result_holder['assembly'], result_holder['bin']
+        right_event.wait(timeout)
+        left_event.wait(timeout)
+        return result_holder['assembly'], result_holder['left'], result_holder['right']
     
 def user_page(request):
     # Set your YAML file paths here
-    stock_path = '/home/snaak/Documents/recipe/test.yaml'
-    recipe_path = '/home/snaak/Documents/recipe/recipe.yaml'
+    stock_path = '/home/snaak/Documents/recipe/UI_files/test.yaml'
+    recipe_path = '/home/snaak/Documents/recipe/UI_files/recipe.yaml'
     restock_warning = None
     try:
         with open(stock_path) as f:
@@ -195,7 +210,7 @@ def operator_page(request):
     images = glob.glob(image_pattern)
     image_files = [os.path.basename(img) for img in images]
     # Bread slice check
-    stock_path = '/home/snaak/Documents/recipe/test.yaml'
+    stock_path = '/home/snaak/Documents/recipe/UI_files/test.yaml'
     restock_warning = None
     try:
         with open(stock_path) as f:
@@ -222,7 +237,7 @@ def operator_page(request):
 
 @require_GET
 def stock_api(request):
-    stock_path = '/home/snaak/Documents/recipe/test.yaml'
+    stock_path = '/home/snaak/Documents/recipe/UI_files/test.yaml'
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
@@ -236,9 +251,10 @@ def stock_api(request):
 
 @require_GET
 def weight_api(request):
-    assembly_weight, bin_weight = ROS2NodeManager.get_instance().get_weight()
+    assembly_weight, left_bin_weight, right_bin_weight = ROS2NodeManager.get_instance().get_weight()
     return JsonResponse({'assembly_weight' : assembly_weight,
-                         'bin_weight' : bin_weight})
+                         'left_bin_weight' : left_bin_weight,
+                         'right_bin_weight' : right_bin_weight})
 
 @require_GET
 def fsm_state_api(request):
@@ -252,7 +268,7 @@ def ingredient_images_api(request): # TODO: this is going to change when the ing
     images = glob.glob(image_pattern)
     image_files = [os.path.basename(img) for img in images]
     # Get ingredients in stock (excluding bread)
-    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
+    stock_path = '/home/snaak/Documents/recipe/UI_files/stock.yaml'
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
@@ -269,7 +285,7 @@ def ingredient_images_api(request): # TODO: this is going to change when the ing
 
 @require_GET
 def ingredient_info_api(request):
-    info_path = '/home/snaak/Documents/recipe/ingredients_info.yaml'
+    info_path = '/home/snaak/Documents/recipe/UI_files/ingredients_info.yaml'
     try:
         with open(info_path) as f:
             info = yaml.safe_load(f)
@@ -300,13 +316,15 @@ def update_stock_api(request):
             slices = ingredient.get('slices', ingredient.get('total_slices', 0))
             type_ = ingredient.get('type', '')
             weight_per_slice = ingredient.get('weight_per_slice', 1)
+            bin = ingredient.get('bin', -1)
             if name:
                 new_stock[name] = {
                     'slices': slices,
                     'type': type_,
-                    'weight_per_slice': weight_per_slice
+                    'weight_per_slice': weight_per_slice,
+                    'bin': bin
                 }
-        with open('/home/snaak/Documents/recipe/test.yaml', 'w') as f:
+        with open('/home/snaak/Documents/recipe/UI_files/test.yaml', 'w') as f:
             yaml.safe_dump({'ingredients': new_stock}, f)
         return JsonResponse({'success': True})
     except Exception as e:

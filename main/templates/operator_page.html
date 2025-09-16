@@ -55,10 +55,10 @@
                 </div>
             </div>
             <div id="restock-step-bin" style="display:none;background:#fff;padding:32px 24px;border-radius:12px;min-width:320px;max-width:90vw;box-shadow:0 2px 16px rgba(0,0,0,0.18);">
-                <h3 style="margin-top:0;">Restock Bin <span id="restock-bin-num">1</span> of 3</h3>
+                <h3 style="margin-top:0;">Restock Bin <span id="restock-bin-num">1</span> of 6</h3>
                 <label for="restock-ingredient-select">Select Ingredient:</label>
                 <select id="restock-ingredient-select" style="margin-bottom:16px;width:100%;padding:8px;"></select>
-                <div style="display:flex;justify-content:space-between;">
+                <div style="display:flex;justify-content:center;">
                     <button id="restock-ok-btn" style="padding:8px 24px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">OK</button>
                 </div>
             </div>
@@ -81,16 +81,19 @@
         <h3>Weights:</h3>
         <div class="section-block" id="weights-block" style="margin-bottom:16px;">
             <b>Assembly Weight:</b> <span id="assembly-weight">--</span> g<br>
-            <b>Bin Weight:</b> <span id="bin-weight">--</span> g
+            <b>Left Bins (4-6) Weight:</b> <span id="left-bin-weight">--</span> g<br>
+            <b>Right Bins (1-3) Weight:</b> <span id="right-bin-weight">--</span> g
         </div>
     </div>
     <script>
+    const TOTAL_BINS = 6;
     function fetchWeights() {
         fetch('/weight_api/')
             .then(response => response.json())
             .then(function(data) {
                 document.getElementById('assembly-weight').textContent = data.assembly_weight;
-                document.getElementById('bin-weight').textContent = data.bin_weight;
+                document.getElementById('left-bin-weight').textContent = data.left_bin_weight;
+                document.getElementById('right-bin-weight').textContent = data.right_bin_weight;
             });
     }
     function fetchFSMState() {
@@ -144,25 +147,32 @@
     // Restock popup logic
     let restockBin = 1;
     let restockData = [];
-    let restockWeights = [];
+    let usedWeights = [];
     let ingredientInfo = {};
+    let lastRightWeight = null;
+    let lastLeftWeight = null;
     document.getElementById('restock-btn').onclick = function() {
         fetch('/publish_toggle_restock_api/?state=Start')
             .then(() => {
                 restockBin = 1;
                 restockData = [];
-                restockWeights = [];
+                usedWeights = [];
+                lastRightWeight = null;
+                lastLeftWeight = null;
                 document.getElementById('restock-modal').style.display = 'flex';
                 document.getElementById('restock-step-clear').style.display = '';
                 document.getElementById('restock-step-bin').style.display = 'none';
             });
     };
+    // After user confirms bins are cleared, capture initial weight and move to bin 1
     document.getElementById('restock-clear-ok-btn').onclick = function() {
-        // Capture initial weight after bins are cleared
         fetch('/weight_api/')
             .then(response => response.json())
             .then(function(data) {
-                restockWeights = [data.bin_weight]; // Start with initial bin weight
+                // Initialize last weights for both scales
+                lastRightWeight = data.right_bin_weight;
+                lastLeftWeight = data.left_bin_weight;
+                usedWeights = [];
                 document.getElementById('restock-step-clear').style.display = 'none';
                 document.getElementById('restock-step-bin').style.display = '';
                 document.getElementById('restock-bin-num').textContent = restockBin;
@@ -175,10 +185,23 @@
         fetch('/weight_api/')
             .then(response => response.json())
             .then(function(data) {
-                restockWeights.push(data.bin_weight);
+                const isRight = restockBin <= 3; // bins 1-3 use right scale, 4-6 use left
+                let used = 0;
+                if (isRight) {
+                    const curr = data.right_bin_weight ?? 0;
+                    const prev = (lastRightWeight == null ? curr : lastRightWeight);
+                    used = Math.abs(curr - prev);
+                    lastRightWeight = curr;
+                } else {
+                    const curr = data.left_bin_weight ?? 0;
+                    const prev = (lastLeftWeight == null ? curr : lastLeftWeight);
+                    used = Math.abs(curr - prev);
+                    lastLeftWeight = curr;
+                }
+                usedWeights.push(used);
                 let ingredient = document.getElementById('restock-ingredient-select').value;
                 restockData.push({bin: restockBin, ingredient: ingredient});
-                if (restockBin < 3) {
+                if (restockBin < TOTAL_BINS) {
                     restockBin++;
                     document.getElementById('restock-bin-num').textContent = restockBin;
                     fetchRestockIngredients();
@@ -203,7 +226,7 @@
                     let selectedIngredients = restockData.map(d => d.ingredient);
                     let allKeys = Object.keys(data.ingredients);
                     let optionsToShow = allKeys.filter(function(ing) {
-                        if (restockBin === 3) {
+                        if (restockBin === TOTAL_BINS) {
                             let breadSelected = selectedIngredients.some(sel => {
                                 let key = sel.trim().toLowerCase().replace(/\s+/g, '_');
                                 let foundKey = allKeys.find(k => k.trim().toLowerCase() === key);
@@ -244,28 +267,33 @@
                 let infoYaml = data.ingredients || {};
                 let summaryHtml = '<ul style="list-style:none;padding-left:0;">';
                 let updateData = [];
-                for (let i = 0; i < 3; i++) {
-                    let ingredient = restockData[i].ingredient;
-                    if (ingredient === 'empty') continue;
-                    let key = ingredient.trim().toLowerCase().replace(/\s+/g, '_');
-                    let foundKey = Object.keys(infoYaml).find(k => k.trim().toLowerCase() === key);
-                    let info = foundKey ? infoYaml[foundKey] : {};
-                    let weight_per_slice = (info && typeof info.weight_per_slice !== 'undefined') ? info.weight_per_slice : 1;
-                    let prevWeight = restockWeights[i];
-                    let currWeight = restockWeights[i+1];
-                    let usedWeight = Math.abs(currWeight - prevWeight);
-                    let type = (info && typeof info.type !== 'undefined') ? info.type : '';
-                    let totalSlices = Math.round(usedWeight / weight_per_slice);
-                    summaryHtml += `<li><b>Bin ${i+1}:</b> ${ingredient} <b>Type:</b> ${type} <b>Total Slices:</b> ${totalSlices}</li>`;
-                    updateData.push({
-                        bin: i+1,
-                        ingredient: {
-                            name: ingredient,
-                            total_slices: totalSlices,
-                            type: type,
-                            weight_per_slice: weight_per_slice
-                        }
-                    });
+                for (let i = 0; i < TOTAL_BINS; i++) {
+                    const rd = restockData[i] || {};
+                    const ingredient = (rd.ingredient !== undefined) ? rd.ingredient : 'empty';
+                    let displayType = '-';
+                    let totalSlices = 0;
+                    if (ingredient !== 'empty') {
+                        const key = ingredient.trim().toLowerCase().replace(/\s+/g, '_');
+                        const foundKey = Object.keys(infoYaml).find(k => k.trim().toLowerCase() === key);
+                        const info = foundKey ? infoYaml[foundKey] : {};
+                        const weight_per_slice = (info && typeof info.weight_per_slice !== 'undefined') ? info.weight_per_slice : 1;
+                        const usedWeight = usedWeights[i] ?? 0;
+                        displayType = (info && typeof info.type !== 'undefined') ? info.type : '';
+                        totalSlices = Math.round(usedWeight / weight_per_slice);
+
+                        // Only push non-empty bins to backend payload
+                        updateData.push({
+                            bin: i+1,
+                            ingredient: {
+                                name: ingredient,
+                                total_slices: totalSlices,
+                                type: displayType,
+                                weight_per_slice: weight_per_slice,
+                                bin: i+1
+                            }
+                        });
+                    }
+                    summaryHtml += `<li><b>Bin ${i+1}:</b> ${ingredient} <b>Type:</b> ${displayType} <b>Total Slices:</b> ${totalSlices}</li>`;
                 }
                 summaryHtml += '</ul>';
                 document.getElementById('restock-summary-block').innerHTML = summaryHtml;
@@ -300,7 +328,7 @@
                         // Disable if not in Recipe state or bread slices < 2
                         const disable = !inRecipeState || breadSlices < 2;
                         if (restockBtn) {
-                            restockBtn.disabled = !inRecipeState;
+                            restockBtn.disabled = false //!inRecipeState; // remove this later
                             restockBtn.style.opacity = !inRecipeState ? '0.5' : '1';
                             restockBtn.style.cursor = !inRecipeState ? 'not-allowed' : 'pointer';
                         }
