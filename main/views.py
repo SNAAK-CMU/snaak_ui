@@ -34,8 +34,12 @@ class ROS2NodeManager:
             ReadWeight, "/snaak_weight_read/snaak_scale_assembly/read_weight"
         )
         # Two bin scales: right for bins 1-3, left for bins 4-6
+        # self.node.weight_bins_right_client = self.node.create_client(
+        #     ReadWeight, "/snaak_weight_read/snaak_scale_bins_right/read_weight" # TODO: convert this back when state machine can handle two scales
+        # )
+
         self.node.weight_bins_right_client = self.node.create_client(
-            ReadWeight, "/snaak_weight_read/snaak_scale_bins_right/read_weight"
+            ReadWeight, "/snaak_weight_read/snaak_scale_bins/read_weight" # TODO: convert this back when state machine can handle two scales
         )
         self.node.weight_bins_left_client = self.node.create_client(
             ReadWeight, "/snaak_weight_read/snaak_scale_bins_left/read_weight"
