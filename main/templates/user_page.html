@@ -26,6 +26,12 @@
     </style>
     <script>
         function startRecipe() {
+            // Prevent submission if button is disabled
+            const btn = document.getElementById('start-recipe-btn');
+            if (btn.disabled) {
+                return false;
+            }
+            
             const ingredientRows = document.querySelectorAll('.ingredient-row');
             let recipe = {};
             // Get bread type
@@ -78,16 +84,67 @@
                         btn.disabled = true;
                         inputs.forEach(input => input.disabled = true);
                     } else {
-                        // Enable if recipe
+                        // In Recipe state - clear state box, check restock before enabling
                         box.innerHTML = '';
-                        btn.classList.remove('disabled');
-                        btn.disabled = false;
-                        inputs.forEach(input => input.disabled = false);
+                        updateButtonState();
                     }
                 });
         }
+
+        function fetchRestockWarning() {
+            fetch('/restock_check_api/')
+                .then(response => response.json())
+                .then(data => {
+                    let banner = document.getElementById('restock-warning-banner');
+                    
+                    if (data.show_warning) {
+                        // Show warning and disable button
+                        banner.style.display = '';
+                        banner.textContent = data.message || 'Restock is necessary. Please contact an operator.';
+                    } else {
+                        // Hide warning
+                        banner.style.display = 'none';
+                    }
+                    updateButtonState();
+                });
+        }
+
+        function updateButtonState() {
+            // This function enables button only if BOTH conditions are met:
+            // 1. FSM is in Recipe state
+            // 2. No restock warning is showing
+            fetch('/fsm_state/')
+                .then(response => response.json())
+                .then(stateData => {
+                    fetch('/restock_check_api/')
+                        .then(response => response.json())
+                        .then(restockData => {
+                            let btn = document.getElementById('start-recipe-btn');
+                            let form = document.getElementById('recipe-form');
+                            let inputs = form.querySelectorAll('input[type="number"]');
+                            
+                            const inRecipeState = stateData.fsm_state === 'Recipe';
+                            const needsRestock = restockData.show_warning === true;
+                            
+                            if (inRecipeState && !needsRestock) {
+                                // Both conditions met - enable button
+                                btn.classList.remove('disabled');
+                                btn.disabled = false;
+                                inputs.forEach(input => input.disabled = false);
+                            } else {
+                                // Either condition not met - disable button
+                                btn.classList.add('disabled');
+                                btn.disabled = true;
+                                inputs.forEach(input => input.disabled = true);
+                            }
+                        });
+                });
+        }
+
         setInterval(fetchFSMState, 2000);
+        setInterval(fetchRestockWarning, 2000);
         fetchFSMState();
+        fetchRestockWarning();
     </script>
 </head>
 
@@ -99,11 +156,9 @@
         </div>
     </div>
     <div class="container">
-        {% if restock_warning %}
-        <div style="background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
-            {{ restock_warning }}
+        <div id="restock-warning-banner" style="display:none;background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
+            Restock is necessary. Please contact an operator.
         </div>
-        {% endif %}
         <h1>Build Your Sandwich</h1>
         {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
         <div id="fsm-state-box" style="margin-bottom:16px;"></div>

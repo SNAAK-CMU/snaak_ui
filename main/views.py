@@ -34,13 +34,14 @@ class ROS2NodeManager:
             ReadWeight, "/snaak_weight_read/snaak_scale_assembly/read_weight"
         )
         # Two bin scales: right for bins 1-3, left for bins 4-6
-        # self.node.weight_bins_right_client = self.node.create_client(
-        #     ReadWeight, "/snaak_weight_read/snaak_scale_bins_right/read_weight" # TODO: convert this back when state machine can handle two scales
-        # )
-
         self.node.weight_bins_right_client = self.node.create_client(
-            ReadWeight, "/snaak_weight_read/snaak_scale_bins/read_weight" # TODO: convert this back when state machine can handle two scales
+            ReadWeight, "/snaak_weight_read/snaak_scale_bins_right/read_weight" # TODO: convert this back when state machine can handle two scales
         )
+
+        # self.node.weight_bins_right_client = self.node.create_client(
+        #     ReadWeight, "/snaak_weight_read/snaak_scale_bins/read_weight" # TODO: convert this back when state machine can handle two scales
+        # )
+        
         self.node.weight_bins_left_client = self.node.create_client(
             ReadWeight, "/snaak_weight_read/snaak_scale_bins_left/read_weight"
         )
@@ -126,8 +127,8 @@ class ROS2NodeManager:
     
 def user_page(request):
     # Set your YAML file paths here
-    stock_path = '/home/snaak/Documents/recipe/UI_files/test.yaml'
-    recipe_path = '/home/snaak/Documents/recipe/UI_files/recipe.yaml'
+    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
+    recipe_path = '/home/snaak/Documents/recipe/recipe.yaml'
     restock_warning = None
     try:
         with open(stock_path) as f:
@@ -213,35 +214,11 @@ def operator_page(request):
     image_pattern = os.path.join(image_dir, '*_check_image.jpg')
     images = glob.glob(image_pattern)
     image_files = [os.path.basename(img) for img in images]
-    # Bread slice check
-    stock_path = '/home/snaak/Documents/recipe/UI_files/test.yaml'
-    restock_warning = None
-    try:
-        with open(stock_path) as f:
-            stock = yaml.safe_load(f)
-        # Find the ingredient with type 'bread'
-        bread_slices_raw = 0
-        found_bread = False
-        for name, info in stock.get('ingredients', {}).items():
-            if info.get('type', '').lower() == 'bread':
-                bread_slices_raw = info.get('slices', 0)
-                found_bread = True
-                break
-        try:
-            bread_slices = int(float(bread_slices_raw))
-        except (ValueError, TypeError):
-            bread_slices = 0
-        fsm_state = ROS2NodeManager.get_instance().fsm_state
-        # Show warning if bread is missing or less than 2 and in Recipe state
-        if (not found_bread or bread_slices < 2) and fsm_state == 'Recipe':
-            restock_warning = 'Restock is necessary.'
-    except Exception:
-        pass
-    return render(request, 'operator_page.html', {'ingredient_images': image_files, 'restock_warning': restock_warning})
+    return render(request, 'operator_page.html', {'ingredient_images': image_files})
 
 @require_GET
 def stock_api(request):
-    stock_path = '/home/snaak/Documents/recipe/UI_files/test.yaml'
+    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
@@ -266,13 +243,42 @@ def fsm_state_api(request):
     return JsonResponse({'fsm_state': state})
 
 @require_GET
+def restock_check_api(request):
+    """Dynamically check if restock warning should be shown."""
+    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
+    try:
+        with open(stock_path) as f:
+            stock = yaml.safe_load(f)
+        # Find the ingredient with type 'bread'
+        bread_slices_raw = 0
+        found_bread = False
+        for name, info in stock.get('ingredients', {}).items():
+            if info.get('type', '').lower() == 'bread':
+                bread_slices_raw = info.get('slices', 0)
+                found_bread = True
+                break
+        try:
+            bread_slices = int(float(bread_slices_raw))
+        except (ValueError, TypeError):
+            bread_slices = 0
+        fsm_state = ROS2NodeManager.get_instance().fsm_state
+        # Show warning if bread is missing or less than 2 and in Recipe state
+        show_warning = (not found_bread or bread_slices < 2) and fsm_state == 'Recipe'
+        return JsonResponse({
+            'show_warning': show_warning,
+            'message': 'Restock is necessary.' if show_warning else ''
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+@require_GET
 def ingredient_images_api(request): # TODO: this is going to change when the ingredient names get changed, going to need some other way to do this
     image_dir = os.path.join(settings.STATIC_ROOT or os.path.join(settings.BASE_DIR, 'main/static'), 'segmentation')
     image_pattern = os.path.join(image_dir, '*_check_image.jpg')
     images = glob.glob(image_pattern)
     image_files = [os.path.basename(img) for img in images]
     # Get ingredients in stock (excluding bread)
-    stock_path = '/home/snaak/Documents/recipe/UI_files/stock.yaml'
+    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
     try:
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
@@ -289,7 +295,7 @@ def ingredient_images_api(request): # TODO: this is going to change when the ing
 
 @require_GET
 def ingredient_info_api(request):
-    info_path = '/home/snaak/Documents/recipe/UI_files/ingredients_info.yaml'
+    info_path = '/home/snaak/Documents/recipe/ingredients_info.yaml'
     try:
         with open(info_path) as f:
             info = yaml.safe_load(f)
@@ -328,7 +334,7 @@ def update_stock_api(request):
                     'weight_per_slice': weight_per_slice,
                     'bin': bin
                 }
-        with open('/home/snaak/Documents/recipe/UI_files/test.yaml', 'w') as f:
+        with open('/home/snaak/Documents/recipe/stock.yaml', 'w') as f:
             yaml.safe_dump({'ingredients': new_stock}, f)
         return JsonResponse({'success': True})
     except Exception as e:

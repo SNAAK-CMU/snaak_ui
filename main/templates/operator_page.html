@@ -33,11 +33,9 @@
     </div>
     <div class="container">
         <h1>Operator Page</h1>
-        {% if restock_warning %}
-        <div style="background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
-            {{ restock_warning }}
+        <div id="restock-warning-banner" style="display:none;background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
+            Restock is necessary.
         </div>
-        {% endif %}
         <h2>Stock</h2>
         <div class="section-block">
             <div id="stock-block" style="margin-bottom:16px;"></div>
@@ -136,14 +134,29 @@
                 }
             });
     }
+    function fetchRestockWarning() {
+        fetch('/restock_check_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                let banner = document.getElementById('restock-warning-banner');
+                if (data.show_warning) {
+                    banner.style.display = '';
+                    banner.textContent = data.message || 'Restock is necessary.';
+                } else {
+                    banner.style.display = 'none';
+                }
+            });
+    }
     setInterval(fetchWeights, 2000);
     setInterval(fetchFSMState, 2000);
     setInterval(fetchIngredientImages, 2000);
     setInterval(fetchStock, 2000);
+    setInterval(fetchRestockWarning, 2000);
     fetchWeights();
     fetchFSMState();
     fetchIngredientImages();
     fetchStock();
+    fetchRestockWarning();
     // Restock popup logic
     let restockBin = 1;
     let restockData = [];
