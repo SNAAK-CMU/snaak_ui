@@ -124,8 +124,20 @@
                 if (data.stock) {
                     let html = '<ul style="list-style:none;padding-left:0;">';
                     for (const [name, info] of Object.entries(data.stock)) {
-                        let qty = (info && typeof info.slices !== 'undefined') ? info.slices : (typeof info === 'object' ? JSON.stringify(info) : info);
-                        html += `<li><b>${name}:</b> ${qty}</li>`;
+                        let qtyDisplay = '';
+                        if (info && typeof info.slices !== 'undefined') {
+                            qtyDisplay = `${info.slices} slices`;
+                        } else if (info && typeof info.weight !== 'undefined') {
+                            // shredded style entry
+                            const w = Number(info.weight || 0).toFixed(1);
+                            const per = info.weight_per_serving ? `, ${info.weight_per_serving}g/serv` : '';
+                            qtyDisplay = `${w} g${per}`;
+                        } else if (typeof info === 'object') {
+                            qtyDisplay = JSON.stringify(info);
+                        } else {
+                            qtyDisplay = info;
+                        }
+                        html += `<li><b>${name}:</b> ${qtyDisplay}</li>`;
                     }
                     html += '</ul>';
                     block.innerHTML = html;
@@ -149,12 +161,12 @@
     }
     setInterval(fetchWeights, 2000);
     setInterval(fetchFSMState, 2000);
-    setInterval(fetchIngredientImages, 2000);
+    //setInterval(fetchIngredientImages, 2000);
     setInterval(fetchStock, 2000);
     setInterval(fetchRestockWarning, 2000);
     fetchWeights();
     fetchFSMState();
-    fetchIngredientImages();
+    //fetchIngredientImages();
     fetchStock();
     fetchRestockWarning();
     // Restock popup logic
@@ -225,9 +237,14 @@
             });
     };
     function fetchRestockIngredients() {
-        fetch('/ingredient_info_api/')
-            .then(response => response.json())
-            .then(function(data) {
+        // Fetch ingredient metadata and current stock, then combine keys.
+        Promise.all([fetch('/ingredient_info_api/').then(r => r.json()), fetch('/stock_api/?t=' + new Date().getTime()).then(r => r.json())])
+            .then(function(results) {
+                const infoData = results[0] || {};
+                const stockData = results[1] || {};
+                const infoMap = infoData.ingredients || {};
+                const stockMap = stockData.stock || {};
+
                 let select = document.getElementById('restock-ingredient-select');
                 select.innerHTML = '';
                 // Add 'empty' option
@@ -235,29 +252,62 @@
                 emptyOpt.value = 'empty';
                 emptyOpt.textContent = 'empty';
                 select.appendChild(emptyOpt);
-                if (data.ingredients) {
-                    let selectedIngredients = restockData.map(d => d.ingredient);
-                    let allKeys = Object.keys(data.ingredients);
-                    let optionsToShow = allKeys.filter(function(ing) {
-                        if (restockBin === TOTAL_BINS) {
-                            let breadSelected = selectedIngredients.some(sel => {
-                                let key = sel.trim().toLowerCase().replace(/\s+/g, '_');
-                                let foundKey = allKeys.find(k => k.trim().toLowerCase() === key);
-                                return foundKey && data.ingredients[foundKey].type === 'bread';
-                            });
-                            if (!breadSelected) {
-                                return data.ingredients[ing].type === 'bread';
-                            }
-                        }
-                        return !selectedIngredients.includes(ing);
-                    });
-                    optionsToShow.forEach(function(ing) {
-                        let opt = document.createElement('option');
-                        opt.value = ing;
-                        opt.textContent = ing;
-                        select.appendChild(opt);
-                    });
+
+                // Build normalized maps for info and stock to handle slight key differences
+                function normalizeKey(s) {
+                    if (!s) return '';
+                    return s.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
                 }
+
+                const normToInfo = {};
+                const normToStock = {};
+                Object.keys(infoMap || {}).forEach(k => { const n = normalizeKey(k); normToInfo[n] = k; });
+                Object.keys(stockMap || {}).forEach(k => { const n = normalizeKey(k); normToStock[n] = k; });
+
+                // union of normalized keys
+                const allNormsSet = new Set([...Object.keys(normToInfo), ...Object.keys(normToStock)]);
+                const allNorms = Array.from(allNormsSet);
+
+                // Normalize already-selected ingredients for comparison
+                let selectedNorms = restockData.map(d => normalizeKey(d.ingredient || ''));
+
+                function getTypeForNorm(n) {
+                    const infoOrig = normToInfo[n];
+                    const stockOrig = normToStock[n];
+                    if (infoOrig && infoMap[infoOrig] && infoMap[infoOrig].type) return infoMap[infoOrig].type;
+                    if (stockOrig && stockMap[stockOrig] && stockMap[stockOrig].type) return stockMap[stockOrig].type;
+                    return '';
+                }
+
+                const optionsToShowNorms = allNorms.filter(function(n) {
+                    if (!n) return false;
+                    if (selectedNorms.includes(n)) return false;
+                    const type = (getTypeForNorm(n) || '').toLowerCase();
+                    // If last bin needs bread and no bread selected yet, only show breads
+                    if (restockBin === TOTAL_BINS) {
+                        const breadSelected = selectedNorms.some(sn => {
+                            const t = (getTypeForNorm(sn) || '').toLowerCase();
+                            return t === 'bread';
+                        });
+                        if (!breadSelected) return type === 'bread';
+                    }
+                    if (restockBin === 1 || restockBin === 6) {
+                        return type !== 'shredded';
+                    }
+                    return true;
+                });
+
+                optionsToShowNorms.forEach(function(n) {
+                    const orig = normToInfo[n] || normToStock[n];
+                    if (!orig) return;
+                    let opt = document.createElement('option');
+                    opt.value = orig;
+                    opt.textContent = orig;
+                    select.appendChild(opt);
+                });
+            })
+            .catch(function(err) {
+                console.error('Error fetching restock ingredients', err);
             });
     }
 
@@ -289,22 +339,42 @@
                         const key = ingredient.trim().toLowerCase().replace(/\s+/g, '_');
                         const foundKey = Object.keys(infoYaml).find(k => k.trim().toLowerCase() === key);
                         const info = foundKey ? infoYaml[foundKey] : {};
-                        const weight_per_slice = (info && typeof info.weight_per_slice !== 'undefined') ? info.weight_per_slice : 1;
                         const usedWeight = usedWeights[i] ?? 0;
                         displayType = (info && typeof info.type !== 'undefined') ? info.type : '';
-                        totalSlices = Math.round(usedWeight / weight_per_slice);
-
-                        // Only push non-empty bins to backend payload
-                        updateData.push({
-                            bin: i+1,
-                            ingredient: {
-                                name: ingredient,
-                                total_slices: totalSlices,
-                                type: displayType,
-                                weight_per_slice: weight_per_slice,
-                                bin: i+1
-                            }
-                        });
+                        // support shredded type (weight per serving) as well as regular weight_per_slice
+                        const weight_per_serving = (info && (typeof info.weight_per_serving !== 'undefined')) ? info.weight_per_serving : (info && typeof info.weight_per_slice !== 'undefined' ? info.weight_per_slice : 1);
+                        if (displayType === 'shredded') {
+                            // For shredded, store total weight and compute servings for display
+                            const totalWeight = usedWeight;
+                            const totalServings = Math.round(totalWeight / (weight_per_serving || 1));
+                            // Only push non-empty bins to backend payload
+                            updateData.push({
+                                bin: i+1,
+                                ingredient: {
+                                    name: ingredient,
+                                    weight: totalWeight,
+                                    type: displayType,
+                                    weight_per_serving: weight_per_serving,
+                                    bin: i+1
+                                }
+                            });
+                            summaryHtml += `<li><b>Bin ${i+1}:</b> ${ingredient} <b>Type:</b> ${displayType} <b>Total Weight (g):</b> ${totalWeight.toFixed(1)} <b>Servings:</b> ${totalServings}</li>`;
+                            continue;
+                        } else {
+                            const weight_per_slice = (info && typeof info.weight_per_slice !== 'undefined') ? info.weight_per_slice : 1;
+                            totalSlices = Math.round(usedWeight / weight_per_slice);
+                            // Only push non-empty bins to backend payload
+                            updateData.push({
+                                bin: i+1,
+                                ingredient: {
+                                    name: ingredient,
+                                    total_slices: totalSlices,
+                                    type: displayType,
+                                    weight_per_slice: weight_per_slice,
+                                    bin: i+1
+                                }
+                            });
+                        }
                     }
                     summaryHtml += `<li><b>Bin ${i+1}:</b> ${ingredient} <b>Type:</b> ${displayType} <b>Total Slices:</b> ${totalSlices}</li>`;
                 }

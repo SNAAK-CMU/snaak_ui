@@ -167,7 +167,7 @@
             {% for ingredient in ingredients %}
                 {% if ingredient.type != 'bread' %}
                 <div class="ingredient-row">
-                    <label data-name="{{ ingredient.name }}">{{ ingredient.name }} (Available: {{ ingredient.available }})</label>
+                    <label data-name="{{ ingredient.name }}">{{ ingredient.name }} {% if ingredient.type == 'shredded' %}(Servings available: {{ ingredient.available }}){% else %}(Available: {{ ingredient.available }}){% endif %}</label>
                     <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
                 </div>
                 {% endif %}

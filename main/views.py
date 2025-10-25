@@ -1,6 +1,7 @@
 from django.shortcuts import render
 import yaml
 import os
+import math
 from django.conf import settings
 from django.http import JsonResponse, HttpResponseBadRequest
 import threading
@@ -165,11 +166,56 @@ def user_page(request):
     # New: stock['ingredients'] is a dict
     ingredients = []
     bread_ingredients = []
+    # Load ingredient info to get weight_per_serving for shredded types
+    info_path = '/home/snaak/Documents/recipe/ingredients_info.yaml'
+    ingredient_info = {}
+    try:
+        with open(info_path) as f:
+            info_yaml = yaml.safe_load(f)
+            if isinstance(info_yaml, dict) and 'ingredients' in info_yaml:
+                ingredient_info = info_yaml['ingredients']
+    except Exception:
+        ingredient_info = {}
+
     for name, info in stock.get('ingredients', {}).items():
-        if info.get('type', '').lower() == 'bread':
-            bread_ingredients.append({'name': name, 'available': info.get('slices', 0), 'type': 'bread'})
+        ing_type = info.get('type', '')
+        if ing_type.lower() == 'bread':
+            # ensure slices is an int (may be stored as string)
+            try:
+                bread_slices = int(float(info.get('slices', 0)))
+            except Exception:
+                bread_slices = 0
+            bread_ingredients.append({'name': name, 'available': bread_slices, 'type': 'bread'})
+        elif ing_type.lower() == 'shredded':
+            # For shredded ingredients, stock keeps a 'weight' (grams)
+            # coerce stored weight to float (could be string)
+            try:
+                stock_weight = float(info.get('weight', 0))
+            except Exception:
+                stock_weight = 0.0
+            # Find weight per serving from ingredient_info (fallback to 1g)
+            key = name.strip().lower().replace(' ', '_')
+            info_meta = ingredient_info.get(key, {}) if isinstance(ingredient_info, dict) else {}
+            weight_per_serving = info_meta.get('weight_per_serving') or info_meta.get('weight_per_slice') or 1
+            try:
+                weight_per_serving = float(weight_per_serving)
+            except Exception:
+                weight_per_serving = 1.0
+            # explicitly floor the division so we always round servings down
+            if weight_per_serving > 0:
+                available_servings = int(math.floor(stock_weight / weight_per_serving))
+                if available_servings < 0:
+                    available_servings = 0
+            else:
+                available_servings = 0
+            ingredients.append({'name': name, 'available': available_servings, 'type': 'shredded', 'stock_weight': stock_weight, 'weight_per_serving': weight_per_serving})
         else:
-            ingredients.append({'name': name, 'available': info.get('slices', 0), 'type': info.get('type', '')})
+            # ensure non-shredded slices count is numeric
+            try:
+                slices_val = int(float(info.get('slices', 0)))
+            except Exception:
+                slices_val = 0
+            ingredients.append({'name': name, 'available': slices_val, 'type': ing_type})
     bread_default = 2
 
     # post signifies that form/button submitted on page
@@ -223,12 +269,13 @@ def stock_api(request):
         with open(stock_path) as f:
             stock = yaml.safe_load(f)
         # Extract ingredient stock
-        ingredients = stock.get('ingredients', {})
+        ingredients = stock.get('ingredients', {}) if isinstance(stock, dict) else {}
         # Format: {name: info_dict} for each ingredient
-        stock_data = {name: info for name, info in ingredients.items()}
+        stock_data = {name: info for name, info in ingredients.items()} if isinstance(ingredients, dict) else {}
         return JsonResponse({'stock': stock_data})
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        # Return empty stock but include error message to help debugging on the client
+        return JsonResponse({'stock': {}, 'error': str(e)})
 
 @require_GET
 def weight_api(request):
@@ -323,17 +370,45 @@ def update_stock_api(request):
             name = ingredient.get('name')
             if name == 'empty':
                 continue
-            slices = ingredient.get('slices', ingredient.get('total_slices', 0))
             type_ = ingredient.get('type', '')
-            weight_per_slice = ingredient.get('weight_per_slice', 1)
             bin = ingredient.get('bin', -1)
-            if name:
-                new_stock[name] = {
-                    'slices': slices,
-                    'type': type_,
-                    'weight_per_slice': weight_per_slice,
-                    'bin': bin
-                }
+            # Shredded ingredients are stored by weight (grams)
+            if type_ and type_.lower() == 'shredded':
+                weight = ingredient.get('weight', ingredient.get('total_weight', 0))
+                weight_per_serving = ingredient.get('weight_per_serving', ingredient.get('weight_per_slice', 1))
+                try:
+                    weight = float(weight)
+                except Exception:
+                    weight = 0
+                try:
+                    weight_per_serving = float(weight_per_serving)
+                except Exception:
+                    weight_per_serving = 1
+                if name:
+                    new_stock[name] = {
+                        'weight': weight,
+                        'type': type_,
+                        'weight_per_serving': weight_per_serving,
+                        'bin': bin
+                    }
+            else:
+                slices = ingredient.get('slices', ingredient.get('total_slices', 0))
+                weight_per_slice = ingredient.get('weight_per_slice', 1)
+                try:
+                    slices = int(slices)
+                except Exception:
+                    slices = 0
+                try:
+                    weight_per_slice = float(weight_per_slice)
+                except Exception:
+                    weight_per_slice = 1
+                if name:
+                    new_stock[name] = {
+                        'slices': slices,
+                        'type': type_,
+                        'weight_per_slice': weight_per_slice,
+                        'bin': bin
+                    }
         with open('/home/snaak/Documents/recipe/stock.yaml', 'w') as f:
             yaml.safe_dump({'ingredients': new_stock}, f)
         return JsonResponse({'success': True})
