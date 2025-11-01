@@ -72,8 +72,8 @@
             </div>
         </div>
         <h2>Debug Info</h2>
-        <!-- <h3>Sandwich Check:</h3>
-        <div class="section-block" id="sandwich-check" style="display:flex;flex-wrap:wrap;gap:24px;"></div> -->
+        <h3>Sandwich Check:</h3>
+        <div class="section-block" id="sandwich-check" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
         <h3>State:</h3>
         <div class="section-block" id="fsm-state" style="font-size:1.2em;font-weight:bold;margin-bottom:24px;">--</div>
         <h3>Weights:</h3>
@@ -161,12 +161,12 @@
     }
     setInterval(fetchWeights, 2000);
     setInterval(fetchFSMState, 2000);
-    //setInterval(fetchIngredientImages, 2000);
+    setInterval(fetchIngredientImages, 2000);
     setInterval(fetchStock, 2000);
     setInterval(fetchRestockWarning, 2000);
     fetchWeights();
     fetchFSMState();
-    //fetchIngredientImages();
+    fetchIngredientImages();
     fetchStock();
     fetchRestockWarning();
     // Restock popup logic

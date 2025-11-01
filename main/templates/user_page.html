@@ -25,6 +25,61 @@
         }
     </style>
     <script>
+        // Store ingredient data for calorie calculations
+        const ingredientData = {
+            ingredients: [
+                {% for ingredient in ingredients %}
+                {
+                    name: "{{ ingredient.name }}",
+                    calories: {{ ingredient.calories|default:0 }},
+                    type: "{{ ingredient.type }}"
+                },
+                {% endfor %}
+            ],
+            bread: [
+                {% for ingredient in bread_ingredients %}
+                {
+                    name: "{{ ingredient.name }}",
+                    calories: {{ ingredient.calories|default:0 }}
+                },
+                {% endfor %}
+            ]
+        };
+
+        function calculateTotalCalories() {
+            let totalCalories = 0;
+
+            // Add bread calories (2 slices)
+            const breadType = document.querySelector('input[name="bread_type"]:checked');
+            if (breadType) {
+                const breadItem = ingredientData.bread.find(b => b.name === breadType.value);
+                if (breadItem) {
+                    totalCalories += breadItem.calories * 2;
+                }
+            }
+
+            // Add ingredient calories
+            const ingredientRows = document.querySelectorAll('.ingredient-row');
+            ingredientRows.forEach(row => {
+                const label = row.querySelector('label[data-name]');
+                const input = row.querySelector('input[type="number"]');
+                if (label && input) {
+                    const ingredientName = label.getAttribute('data-name');
+                    const quantity = parseInt(input.value) || 0;
+                    const ingredientItem = ingredientData.ingredients.find(i => i.name === ingredientName);
+                    if (ingredientItem && quantity > 0) {
+                        totalCalories += ingredientItem.calories * quantity;
+                    }
+                }
+            });
+
+            // Update the display
+            const calorieDisplay = document.getElementById('total-calories-display');
+            if (calorieDisplay) {
+                calorieDisplay.textContent = Math.round(totalCalories);
+            }
+        }
+
         function startRecipe() {
             // Prevent submission if button is disabled
             const btn = document.getElementById('start-recipe-btn');
@@ -145,6 +200,27 @@
         setInterval(fetchRestockWarning, 2000);
         fetchFSMState();
         fetchRestockWarning();
+
+        // Initialize calorie display and add event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            calculateTotalCalories();
+
+            // Add listeners to all number inputs
+            const ingredientRows = document.querySelectorAll('.ingredient-row');
+            ingredientRows.forEach(row => {
+                const input = row.querySelector('input[type="number"]');
+                if (input) {
+                    input.addEventListener('change', calculateTotalCalories);
+                    input.addEventListener('input', calculateTotalCalories);
+                }
+            });
+
+            // Add listeners to bread type radio buttons
+            const breadRadios = document.querySelectorAll('input[name="bread_type"]');
+            breadRadios.forEach(radio => {
+                radio.addEventListener('change', calculateTotalCalories);
+            });
+        });
     </script>
 </head>
 
@@ -162,13 +238,19 @@
         <h1>Build Your Sandwich</h1>
         {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
         <div id="fsm-state-box" style="margin-bottom:16px;"></div>
+        <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+            <p style="margin: 0; font-size: 0.95em; color: #666;">Total Calories</p>
+            <p style="margin: 8px 0 0 0; font-size: 1.8em; font-weight: bold; color: #1976d2;">
+                <span id="total-calories-display">0</span> cal
+            </p>
+        </div>
         <form id="recipe-form" onsubmit="return startRecipe();">
             {% csrf_token %}
             {% for ingredient in ingredients %}
                 {% if ingredient.type != 'bread' %}
                 <div class="ingredient-row">
                     <label data-name="{{ ingredient.name }}">{{ ingredient.name }} {% if ingredient.type == 'shredded' %}(Servings available: {{ ingredient.available }}){% else %}(Available: {{ ingredient.available }}){% endif %}</label>
-                    <input type="number" min="0" max="{{ ingredient.available }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                    <input type="number" min="0" max="3" value="{{ recipe|get_item:ingredient.name|default:0 }}">
                 </div>
                 {% endif %}
             {% endfor %}

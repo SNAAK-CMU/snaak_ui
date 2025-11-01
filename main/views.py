@@ -38,11 +38,7 @@ class ROS2NodeManager:
         self.node.weight_bins_right_client = self.node.create_client(
             ReadWeight, "/snaak_weight_read/snaak_scale_bins_right/read_weight" # TODO: convert this back when state machine can handle two scales
         )
-
-        # self.node.weight_bins_right_client = self.node.create_client(
-        #     ReadWeight, "/snaak_weight_read/snaak_scale_bins/read_weight" # TODO: convert this back when state machine can handle two scales
-        # )
-        
+       
         self.node.weight_bins_left_client = self.node.create_client(
             ReadWeight, "/snaak_weight_read/snaak_scale_bins_left/read_weight"
         )
@@ -185,7 +181,14 @@ def user_page(request):
                 bread_slices = int(float(info.get('slices', 0)))
             except Exception:
                 bread_slices = 0
-            bread_ingredients.append({'name': name, 'available': bread_slices, 'type': 'bread'})
+            key = name.strip().lower().replace(' ', '_')
+            info_meta = ingredient_info.get(key, {}) if isinstance(ingredient_info, dict) else {}
+            calories = info_meta.get('calories', 0)
+            try:
+                calories = float(calories)
+            except Exception:
+                calories = 0.0
+            bread_ingredients.append({'name': name, 'available': bread_slices, 'type': 'bread', 'calories': calories})
         elif ing_type.lower() == 'shredded':
             # For shredded ingredients, stock keeps a 'weight' (grams)
             # coerce stored weight to float (could be string)
@@ -208,14 +211,26 @@ def user_page(request):
                     available_servings = 0
             else:
                 available_servings = 0
-            ingredients.append({'name': name, 'available': available_servings, 'type': 'shredded', 'stock_weight': stock_weight, 'weight_per_serving': weight_per_serving})
+            calories = info_meta.get('calories', 0)
+            try:
+                calories = float(calories)
+            except Exception:
+                calories = 0.0
+            ingredients.append({'name': name, 'available': available_servings, 'type': 'shredded', 'stock_weight': stock_weight, 'weight_per_serving': weight_per_serving, 'calories': calories})
         else:
             # ensure non-shredded slices count is numeric
             try:
                 slices_val = int(float(info.get('slices', 0)))
             except Exception:
                 slices_val = 0
-            ingredients.append({'name': name, 'available': slices_val, 'type': ing_type})
+            key = name.strip().lower().replace(' ', '_')
+            info_meta = ingredient_info.get(key, {}) if isinstance(ingredient_info, dict) else {}
+            calories = info_meta.get('calories', 0)
+            try:
+                calories = float(calories)
+            except Exception:
+                calories = 0.0
+            ingredients.append({'name': name, 'available': slices_val, 'type': ing_type, 'calories': calories})
     bread_default = 2
 
     # post signifies that form/button submitted on page
@@ -325,19 +340,10 @@ def ingredient_images_api(request): # TODO: this is going to change when the ing
     images = glob.glob(image_pattern)
     image_files = [os.path.basename(img) for img in images]
     # Get ingredients in stock (excluding bread)
-    stock_path = '/home/snaak/Documents/recipe/stock.yaml'
-    try:
-        with open(stock_path) as f:
-            stock = yaml.safe_load(f)
-        ingredients = [name.lower() for name in stock.get('ingredients', {}).keys() if name.lower() != 'bread']
-        # Only show images for ingredients in stock
-        filtered_images = [img for img in image_files if any(ing in img.lower() for ing in ingredients)]
-    except Exception as e:
-        filtered_images = image_files  # fallback: show all
-    # Always include bread_top and bread_bottom images if present
-    for bread_img in ['bread_top_check_image.jpg', 'bread_bottom_check_image.jpg']:
-        if bread_img in image_files and bread_img not in filtered_images:
-            filtered_images.append(bread_img)
+    filtered_images = []
+    for img in ['ham_check_image.jpg', 'cheese_check_image.jpg', 'bread_top_check_image.jpg', 'bread_bottom_check_image.jpg']:
+        if img in image_files and img not in filtered_images:
+            filtered_images.append(img)
     return JsonResponse({'ingredient_images': filtered_images})
 
 @require_GET
