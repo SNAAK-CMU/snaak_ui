@@ -164,6 +164,89 @@
                 });
         }
 
+        // Poll the backend for current stock and update UI labels / bread radios accordingly
+        function fetchStockData() {
+            fetch('/stock_api/?t=' + new Date().getTime())
+                .then(r => r.json())
+                .then(function(data) {
+                    const stock = data.stock || {};
+
+                    // Update non-bread ingredient labels (available counts)
+                    document.querySelectorAll('.ingredient-row').forEach(function(row) {
+                        const label = row.querySelector('label[data-name]');
+                        const input = row.querySelector('input[type="number"]');
+                        if (!label) return;
+                        const name = label.getAttribute('data-name');
+                        const info = stock[name] || stock[name.toLowerCase()] || null;
+                        let available = null;
+                        let isShredded = false;
+                        if (info && typeof info.slices !== 'undefined') {
+                            available = Number(info.slices) || 0;
+                        } else if (info && typeof info.weight !== 'undefined') {
+                            // If shredded, compute servings if weight_per_serving present
+                            const w = Number(info.weight || 0);
+                            const per = Number(info.weight_per_serving || info.weight_per_slice || 1);
+                            if (per > 0) {
+                                available = Math.floor(w / per);
+                            } else {
+                                available = 0;
+                            }
+                            isShredded = true;
+                        }
+
+                        // Update label text while preserving ingredient name and type text
+                        const baseName = name + ' ';
+                        if (available !== null) {
+                            if (isShredded) {
+                                label.innerHTML = `${name} (Servings available: ${available})`;
+                            } else {
+                                label.innerHTML = `${name} (Available: ${available})`;
+                            }
+                            // If input exists, ensure its max still respects the UI cap (2) but we could also clamp current value
+                            if (input) {
+                                // keep UI cap at 2 but if available is 0 disable input
+                                input.max = 2;
+                                if ((Number(available) <= 0)) {
+                                    input.value = 0;
+                                    input.disabled = true;
+                                    input.max = 0;
+                                } else {
+                                    // if previously disabled and now available, re-enable
+                                    input.disabled = false;
+                                    // set max to min(2, available) and clamp current value
+                                    const cur = Number(input.value) || 0;
+                                    const newMax = Math.min(2, Number(available));
+                                    input.max = newMax;
+                                    if (cur > newMax) input.value = newMax;
+                                }
+                            }
+                        }
+                    });
+
+                    // Update bread radio buttons availability (require >=2 slices)
+                    document.querySelectorAll('input[name="bread_type"]').forEach(function(radio) {
+                        const name = radio.value;
+                        const info = stock[name] || stock[name.toLowerCase()] || null;
+                        let slices = 0;
+                        if (info && typeof info.slices !== 'undefined') slices = Number(info.slices) || 0;
+                        const wrapper = radio.closest('label');
+                        if (slices >= 2) {
+                            radio.disabled = false;
+                            if (wrapper) wrapper.style.opacity = '1';
+                        } else {
+                            // disable option if not enough bread
+                            radio.disabled = true;
+                            if (wrapper) wrapper.style.opacity = '0.5';
+                            // if this radio was checked, uncheck it
+                            if (radio.checked) radio.checked = false;
+                        }
+                    });
+                })
+                .catch(function(err) {
+                    console.warn('Could not fetch stock:', err);
+                });
+        }
+
         function updateButtonState() {
             // This function enables button only if BOTH conditions are met:
             // 1. FSM is in Recipe state
@@ -198,8 +281,10 @@
 
         setInterval(fetchFSMState, 2000);
         setInterval(fetchRestockWarning, 2000);
+        setInterval(fetchStockData, 2000);
         fetchFSMState();
         fetchRestockWarning();
+        fetchStockData();
 
         // Initialize calorie display and add event listeners
         document.addEventListener('DOMContentLoaded', function() {
@@ -250,7 +335,11 @@
                 {% if ingredient.type != 'bread' %}
                 <div class="ingredient-row">
                     <label data-name="{{ ingredient.name }}">{{ ingredient.name }} {% if ingredient.type == 'shredded' %}(Servings available: {{ ingredient.available }}){% else %}(Available: {{ ingredient.available }}){% endif %}</label>
-                    <input type="number" min="0" max="3" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                    {% if ingredient.available|default:0 >= 2 %}
+                        <input type="number" min="0" max="2" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                    {% else %}
+                        <input type="number" min="0" max="{{ ingredient.available|default:0 }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                    {% endif %}
                 </div>
                 {% endif %}
             {% endfor %}

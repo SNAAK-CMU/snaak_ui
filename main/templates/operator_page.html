@@ -102,7 +102,8 @@
             });
     }
     function fetchIngredientImages() {
-        fetch('/ingredient_images_api/')
+        // Add a timestamp to the API call to avoid stale cached responses
+        fetch('/ingredient_images_api/?t=' + new Date().getTime())
             .then(response => response.json())
             .then(function(data) {
                 let container = document.getElementById('sandwich-check');
@@ -111,7 +112,9 @@
                     container.innerHTML = '<div>No check images found.</div>';
                 } else {
                     data.ingredient_images.forEach(function(img) {
-                        container.innerHTML += `<div style="text-align:center;"><img src="/static/segmentation/${img}" alt="${img}" style="max-width:300px;max-height:300px;border:1px solid #ccc;border-radius:8px;" /><div style="margin-top:8px;font-weight:bold;">${img.replace('_check_image.jpg','')}</div></div>`;
+                        // Append timestamp to image src to force reload if file contents change
+                        const ts = new Date().getTime();
+                        container.innerHTML += `<div style="text-align:center;"><img src="/static/segmentation/${img}?t=${ts}" alt="${img}" style="max-width:300px;max-height:300px;border:1px solid #ccc;border-radius:8px;" /><div style="margin-top:8px;font-weight:bold;">${img.replace('_check_image.jpg','')}</div></div>`;
                     });
                 }
             });

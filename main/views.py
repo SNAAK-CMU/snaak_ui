@@ -335,13 +335,13 @@ def restock_check_api(request):
 
 @require_GET
 def ingredient_images_api(request): # TODO: this is going to change when the ingredient names get changed, going to need some other way to do this
-    image_dir = os.path.join(settings.STATIC_ROOT or os.path.join(settings.BASE_DIR, 'main/static'), 'segmentation')
+    image_dir = '/home/snaak/Documents/manipulation_ws/src/snaak_vision/src/segmentation'
     image_pattern = os.path.join(image_dir, '*_check_image.jpg')
     images = glob.glob(image_pattern)
     image_files = [os.path.basename(img) for img in images]
     # Get ingredients in stock (excluding bread)
     filtered_images = []
-    for img in ['ham_check_image.jpg', 'cheese_check_image.jpg', 'bread_top_check_image.jpg', 'bread_bottom_check_image.jpg']:
+    for img in ['meat_check_image.jpg', 'cheese_check_image.jpg', 'bread_top_check_image.jpg', 'bread_bottom_check_image.jpg']:
         if img in image_files and img not in filtered_images:
             filtered_images.append(img)
     return JsonResponse({'ingredient_images': filtered_images})
