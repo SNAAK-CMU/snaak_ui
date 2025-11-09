@@ -349,7 +349,7 @@
                         if (displayType === 'shredded') {
                             // For shredded, store total weight and compute servings for display
                             const totalWeight = usedWeight;
-                            const totalServings = Math.round(totalWeight / (weight_per_serving || 1));
+                            const totalServings = Math.floor(totalWeight / (weight_per_serving || 1));
                             // Only push non-empty bins to backend payload
                             updateData.push({
                                 bin: i+1,

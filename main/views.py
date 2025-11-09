@@ -334,7 +334,7 @@ def restock_check_api(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 @require_GET
-def ingredient_images_api(request): # TODO: this is going to change when the ingredient names get changed, going to need some other way to do this
+def ingredient_images_api(request):
     image_dir = '/home/snaak/Documents/manipulation_ws/src/snaak_vision/src/segmentation'
     image_pattern = os.path.join(image_dir, '*_check_image.jpg')
     images = glob.glob(image_pattern)

@@ -86,7 +86,7 @@
             if (btn.disabled) {
                 return false;
             }
-            
+
             const ingredientRows = document.querySelectorAll('.ingredient-row');
             let recipe = {};
             // Get bread type
@@ -116,6 +116,38 @@
                 })
                 .catch(() => alert("Error saving recipe."));
             return false;
+        }
+
+        function updateButtonState() {
+            // This function enables button only if BOTH conditions are met:
+            // 1. FSM is in Recipe state
+            // 2. No restock warning is showing
+            fetch('/fsm_state/')
+                .then(response => response.json())
+                .then(stateData => {
+                    fetch('/restock_check_api/')
+                        .then(response => response.json())
+                        .then(restockData => {
+                            let btn = document.getElementById('start-recipe-btn');
+                            let form = document.getElementById('recipe-form');
+                            let inputs = form.querySelectorAll('input[type="number"]');
+
+                            const inRecipeState = stateData.fsm_state === 'Recipe';
+                            const needsRestock = restockData.show_warning === true;
+
+                            if (inRecipeState && !needsRestock) {
+                                // Both conditions met - enable button
+                                btn.classList.remove('disabled');
+                                btn.disabled = false;
+                                inputs.forEach(input => input.disabled = false);
+                            } else {
+                                // Either condition not met - disable button
+                                btn.classList.add('disabled');
+                                btn.disabled = true;
+                                inputs.forEach(input => input.disabled = true);
+                            }
+                        });
+                });
         }
 
         function fetchFSMState() {
@@ -151,7 +183,7 @@
                 .then(response => response.json())
                 .then(data => {
                     let banner = document.getElementById('restock-warning-banner');
-                    
+
                     if (data.show_warning) {
                         // Show warning and disable button
                         banner.style.display = '';
@@ -163,21 +195,63 @@
                     updateButtonState();
                 });
         }
+        function fetchStock() {
+            fetch('/stock_api/?t=' + new Date().getTime())
+                .then(response => response.json())
+                .then(function (data) {
+                    let block = document.getElementById('stock-block');
+                    if (data.stock) {
+                        let html = '<ul style="list-style:none;padding-left:0;">';
+                        for (const [name, info] of Object.entries(data.stock)) {
+                            let qtyDisplay = '';
+                            if (info && typeof info.slices !== 'undefined') {
+                                qtyDisplay = info.slices;
+                            } else if (info && typeof info.weight !== 'undefined') {
+                                // shredded style entry
+                                const w = Number(info.weight || 0).toFixed(1);
+                                qtyDisplay = Math.floor(w / info.weight_per_serving);
+                            } else if (typeof info === 'object') {
+                                qtyDisplay = JSON.stringify(info);
+                            } else {
+                                qtyDisplay = info;
+                            }
+                            html += `<li><b>${name}:</b> ${qtyDisplay}</li>`;
+                        }
+                        html += '</ul>';
+                        block.innerHTML = html;
+                    } else {
+                        block.innerHTML = '<div style="color:red;">Error loading stock.</div>';
+                    }
+                });
+        }
 
         // Poll the backend for current stock and update UI labels / bread radios accordingly
         function fetchStockData() {
+            try {
+                console.debug('[user_page] fetchStockData running');
+            } catch (e) {}
             fetch('/stock_api/?t=' + new Date().getTime())
                 .then(r => r.json())
-                .then(function(data) {
+                .then(function (data) {
                     const stock = data.stock || {};
 
                     // Update non-bread ingredient labels (available counts)
-                    document.querySelectorAll('.ingredient-row').forEach(function(row) {
+                    document.querySelectorAll('.ingredient-row').forEach(function (row) {
                         const label = row.querySelector('label[data-name]');
                         const input = row.querySelector('input[type="number"]');
                         if (!label) return;
                         const name = label.getAttribute('data-name');
-                        const info = stock[name] || stock[name.toLowerCase()] || null;
+                        console.debug('[user_page] Updating stock for ingredient:', name);
+                        // Try exact key, lowercase key, then normalized key match
+                        let info = stock[name] || stock[name.toLowerCase()] || null;
+                        if (!info) {
+                            const found = Object.keys(stock).find(k => {
+                                const nk = k ? k.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') : '';
+                                const nn = name ? name.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') : '';
+                                return nk === nn;
+                            });
+                            if (found) info = stock[found];
+                        }
                         let available = null;
                         let isShredded = false;
                         if (info && typeof info.slices !== 'undefined') {
@@ -223,72 +297,67 @@
                         }
                     });
 
-                    // Update bread radio buttons availability (require >=2 slices)
-                    document.querySelectorAll('input[name="bread_type"]').forEach(function(radio) {
+                    function normalizeKey(s) {
+                        if (!s) return '';
+                        return s.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                    }
+                    document.querySelectorAll('input[name="bread_type"]').forEach(function (radio) {
+                        console.debug('[user_page] Updating stock for bread type:', radio.value);
                         const name = radio.value;
-                        const info = stock[name] || stock[name.toLowerCase()] || null;
+                        // try exact, lowercase, then normalized match
+                        let info = stock[name] || stock[name.toLowerCase()] || null;
+                        if (!info) {
+                            const found = Object.keys(stock).find(k => normalizeKey(k) === normalizeKey(name));
+                            if (found) info = stock[found];
+                        }
                         let slices = 0;
                         if (info && typeof info.slices !== 'undefined') slices = Number(info.slices) || 0;
                         const wrapper = radio.closest('label');
+
+                        // Update the label text next to the radio to reflect current availability.
+                        // We try to update an existing text node after the input; if none exists we append one.
+                        try {
+                            const labelText = `${name} (Available: ${slices})`;
+                            // Find the first text node after the radio input
+                            let ns = radio.nextSibling;
+                            while (ns && ns.nodeType !== Node.TEXT_NODE) ns = ns.nextSibling;
+                            if (ns) {
+                                ns.nodeValue = ' ' + labelText;
+                            } else if (wrapper) {
+                                // No text node present, append one
+                                radio.insertAdjacentText('afterend', ' ' + labelText);
+                            }
+                        } catch (e) {
+                            // If DOM APIs fail for some reason, silently continue - availability will still be enforced
+                            console.debug('[user_page] Could not update bread label text:', e);
+                        }
+
                         if (slices >= 2) {
                             radio.disabled = false;
                             if (wrapper) wrapper.style.opacity = '1';
                         } else {
-                            // disable option if not enough bread
                             radio.disabled = true;
                             if (wrapper) wrapper.style.opacity = '0.5';
-                            // if this radio was checked, uncheck it
                             if (radio.checked) radio.checked = false;
                         }
                     });
                 })
-                .catch(function(err) {
+                .catch(function (err) {
                     console.warn('Could not fetch stock:', err);
                 });
         }
 
-        function updateButtonState() {
-            // This function enables button only if BOTH conditions are met:
-            // 1. FSM is in Recipe state
-            // 2. No restock warning is showing
-            fetch('/fsm_state/')
-                .then(response => response.json())
-                .then(stateData => {
-                    fetch('/restock_check_api/')
-                        .then(response => response.json())
-                        .then(restockData => {
-                            let btn = document.getElementById('start-recipe-btn');
-                            let form = document.getElementById('recipe-form');
-                            let inputs = form.querySelectorAll('input[type="number"]');
-                            
-                            const inRecipeState = stateData.fsm_state === 'Recipe';
-                            const needsRestock = restockData.show_warning === true;
-                            
-                            if (inRecipeState && !needsRestock) {
-                                // Both conditions met - enable button
-                                btn.classList.remove('disabled');
-                                btn.disabled = false;
-                                inputs.forEach(input => input.disabled = false);
-                            } else {
-                                // Either condition not met - disable button
-                                btn.classList.add('disabled');
-                                btn.disabled = true;
-                                inputs.forEach(input => input.disabled = true);
-                            }
-                        });
-                });
-        }
-
-        setInterval(fetchFSMState, 2000);
-        setInterval(fetchRestockWarning, 2000);
-        setInterval(fetchStockData, 2000);
-        fetchFSMState();
-        fetchRestockWarning();
-        fetchStockData();
-
         // Initialize calorie display and add event listeners
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             calculateTotalCalories();
+
+            // Start polling once DOM is ready so elements exist
+            setInterval(fetchFSMState, 2000);
+            setInterval(fetchRestockWarning, 2000);
+            setInterval(fetchStockData, 2000);
+            fetchFSMState();
+            fetchRestockWarning();
+            fetchStockData();
 
             // Add listeners to all number inputs
             const ingredientRows = document.querySelectorAll('.ingredient-row');
@@ -317,7 +386,8 @@
         </div>
     </div>
     <div class="container">
-        <div id="restock-warning-banner" style="display:none;background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
+        <div id="restock-warning-banner"
+            style="display:none;background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
             Restock is necessary. Please contact an operator.
         </div>
         <h1>Build Your Sandwich</h1>
@@ -332,27 +402,28 @@
         <form id="recipe-form" onsubmit="return startRecipe();">
             {% csrf_token %}
             {% for ingredient in ingredients %}
-                {% if ingredient.type != 'bread' %}
-                <div class="ingredient-row">
-                    <label data-name="{{ ingredient.name }}">{{ ingredient.name }} {% if ingredient.type == 'shredded' %}(Servings available: {{ ingredient.available }}){% else %}(Available: {{ ingredient.available }}){% endif %}</label>
-                    {% if ingredient.available|default:0 >= 2 %}
-                        <input type="number" min="0" max="2" value="{{ recipe|get_item:ingredient.name|default:0 }}">
-                    {% else %}
-                        <input type="number" min="0" max="{{ ingredient.available|default:0 }}" value="{{ recipe|get_item:ingredient.name|default:0 }}">
-                    {% endif %}
-                </div>
+            {% if ingredient.type != 'bread' %}
+            <div class="ingredient-row">
+                <label data-name="{{ ingredient.name }}">{{ ingredient.name }} {% if ingredient.type == 'shredded' %}(Servings available: {{ ingredient.available }}){% else %}(Available: {{ ingredient.available }}){% endif %}</label>
+                {% if ingredient.available|default:0 >= 2 %}
+                <input type="number" min="0" max="2" value="{{ recipe|get_item:ingredient.name|default:0 }}">
+                {% else %}
+                <input type="number" min="0" max="{{ ingredient.available|default:0 }}"
+                    value="{{ recipe|get_item:ingredient.name|default:0 }}">
                 {% endif %}
+            </div>
+            {% endif %}
             {% endfor %}
             {% with bread_types=ingredients|dictsort:"name" %}
             {% if bread_ingredients %}
             <div class="ingredient-row">
                 <label>Bread Type:</label>
                 {% for ingredient in bread_ingredients %}
-                    {% if ingredient.available|default:0 >= 2 %}
-                        <label style="margin-right:16px;">
-                            <input type="radio" name="bread_type" value="{{ ingredient.name }}" {% if forloop.first %}checked{% endif %}> {{ ingredient.name }} (Available: {{ ingredient.available }})
-                        </label>
-                    {% endif %}
+                {% if ingredient.available|default:0 >= 2 %}
+                <label style="margin-right:16px;">
+                    <input type="radio" name="bread_type" value="{{ ingredient.name }}" {% if forloop.first %}checked{% endif %}> {{ ingredient.name }} (Available: {{ ingredient.available }})
+                </label>
+                {% endif %}
                 {% endfor %}
             </div>
             {% endif %}
