@@ -1,0 +1,433 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Operator Page</title>
+    <link rel="stylesheet" href="{% static 'main/style.css' %}">
+    <style>
+        .container {
+            width: 60vw;
+            min-width: 600px;
+            max-width: 1200px;
+            margin: 32px auto;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+            padding: 32px;
+        }
+        .section-block {
+            background: #f7f7f7;
+            border-radius: 8px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+            padding: 20px 24px;
+            margin-bottom: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="{% static 'main/snaak_logo.png' %}" class="logo" alt="Snaak Logo">
+        <div>
+            <a href="{% url 'user_page' %}"><button>User Page</button></a>
+        </div>
+    </div>
+    <div class="container">
+        <h1>Operator Page</h1>
+        <div id="restock-warning-banner" style="display:none;background:#ffdddd;color:#b71c1c;padding:16px;border-radius:8px;margin-bottom:24px;font-weight:bold;text-align:center;">
+            Restock is necessary.
+        </div>
+        <h2>Stock</h2>
+        <div class="section-block">
+            <div id="stock-block" style="margin-bottom:16px;"></div>
+            <div style="display:flex;justify-content:center;">
+                <button id="restock-btn" style="padding:8px 24px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Restock</button>
+            </div>
+        </div>
+        <!-- Restock Modal -->
+        <div id="restock-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+            <div id="restock-step-clear" style="background:#fff;padding:32px 24px;border-radius:12px;min-width:320px;max-width:90vw;box-shadow:0 2px 16px rgba(0,0,0,0.18);">
+                <h3 style="margin-top:0;">Restock</h3>
+                <div style="color:#d32f2f;font-weight:bold;margin-bottom:16px;">Please clear all bins before starting restock.</div>
+                <div style="display:flex;justify-content:center;">
+                    <button id="restock-clear-ok-btn" style="padding:8px 24px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">OK</button>
+                </div>
+            </div>
+            <div id="restock-step-bin" style="display:none;background:#fff;padding:32px 24px;border-radius:12px;min-width:320px;max-width:90vw;box-shadow:0 2px 16px rgba(0,0,0,0.18);">
+                <h3 style="margin-top:0;">Restock Bin <span id="restock-bin-num">1</span> of 6</h3>
+                <label for="restock-ingredient-select">Select Ingredient:</label>
+                <select id="restock-ingredient-select" style="margin-bottom:16px;width:100%;padding:8px;"></select>
+                <div style="display:flex;justify-content:center;">
+                    <button id="restock-ok-btn" style="padding:8px 24px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">OK</button>
+                </div>
+            </div>
+        </div>
+        <!-- Restock Summary Modal -->
+        <div id="restock-summary-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.4);z-index:1001;align-items:center;justify-content:center;">
+            <div style="background:#fff;padding:32px 24px;border-radius:12px;min-width:320px;max-width:90vw;box-shadow:0 2px 16px rgba(0,0,0,0.18);">
+                <h3 style="margin-top:0;">Restock Summary</h3>
+                <div id="restock-summary-block" style="margin-bottom:16px;"></div>
+                <div style="display:flex;justify-content:center;">
+                    <button id="restock-summary-ok-btn" style="padding:8px 24px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">OK</button>
+                </div>
+            </div>
+        </div>
+        <h2>Debug Info</h2>
+        <h3>Sandwich Check:</h3>
+        <div class="section-block" id="sandwich-check" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
+        <h3>State:</h3>
+        <div class="section-block" id="fsm-state" style="font-size:1.2em;font-weight:bold;margin-bottom:24px;">--</div>
+        <h3>Weights:</h3>
+        <div class="section-block" id="weights-block" style="margin-bottom:16px;">
+            <b>Assembly Weight:</b> <span id="assembly-weight">--</span> g<br>
+            <b>Left Bins (4-6) Weight:</b> <span id="left-bin-weight">--</span> g<br>
+            <b>Right Bins (1-3) Weight:</b> <span id="right-bin-weight">--</span> g
+        </div>
+    </div>
+    <script>
+    const TOTAL_BINS = 6;
+    function fetchWeights() {
+        fetch('/weight_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                document.getElementById('assembly-weight').textContent = data.assembly_weight;
+                document.getElementById('left-bin-weight').textContent = data.left_bin_weight;
+                document.getElementById('right-bin-weight').textContent = data.right_bin_weight;
+            });
+    }
+    function fetchFSMState() {
+        fetch('/fsm_state/')
+            .then(response => response.json())
+            .then(function(data) {
+                document.getElementById('fsm-state').textContent = data.fsm_state || '--';
+            });
+    }
+    function fetchIngredientImages() {
+        // Add a timestamp to the API call to avoid stale cached responses
+        fetch('/ingredient_images_api/?t=' + new Date().getTime())
+            .then(response => response.json())
+            .then(function(data) {
+                let container = document.getElementById('sandwich-check');
+                container.innerHTML = '';
+                if (data.ingredient_images.length === 0) {
+                    container.innerHTML = '<div>No check images found.</div>';
+                } else {
+                    data.ingredient_images.forEach(function(img) {
+                        // Append timestamp to image src to force reload if file contents change
+                        const ts = new Date().getTime();
+                        container.innerHTML += `<div style="text-align:center;"><img src="/static/segmentation/${img}?t=${ts}" alt="${img}" style="max-width:300px;max-height:300px;border:1px solid #ccc;border-radius:8px;" /><div style="margin-top:8px;font-weight:bold;">${img.replace('_check_image.jpg','')}</div></div>`;
+                    });
+                }
+            });
+    }
+    function fetchStock() {
+        fetch('/stock_api/?t=' + new Date().getTime())
+            .then(response => response.json())
+            .then(function(data) {
+                let block = document.getElementById('stock-block');
+                if (data.stock) {
+                    let html = '<ul style="list-style:none;padding-left:0;">';
+                    for (const [name, info] of Object.entries(data.stock)) {
+                        let qtyDisplay = '';
+                        if (info && typeof info.slices !== 'undefined') {
+                            qtyDisplay = `${info.slices} slices`;
+                        } else if (info && typeof info.weight !== 'undefined') {
+                            // shredded style entry
+                            const w = Number(info.weight || 0).toFixed(1);
+                            const per = info.weight_per_serving ? `, ${info.weight_per_serving}g/serv` : '';
+                            qtyDisplay = `${w} g${per}`;
+                        } else if (typeof info === 'object') {
+                            qtyDisplay = JSON.stringify(info);
+                        } else {
+                            qtyDisplay = info;
+                        }
+                        html += `<li><b>${name}:</b> ${qtyDisplay}</li>`;
+                    }
+                    html += '</ul>';
+                    block.innerHTML = html;
+                } else {
+                    block.innerHTML = '<div style="color:red;">Error loading stock.</div>';
+                }
+            });
+    }
+    function fetchRestockWarning() {
+        fetch('/restock_check_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                let banner = document.getElementById('restock-warning-banner');
+                if (data.show_warning) {
+                    banner.style.display = '';
+                    banner.textContent = data.message || 'Restock is necessary.';
+                } else {
+                    banner.style.display = 'none';
+                }
+            });
+    }
+    setInterval(fetchWeights, 2000);
+    setInterval(fetchFSMState, 2000);
+    setInterval(fetchIngredientImages, 2000);
+    setInterval(fetchStock, 2000);
+    setInterval(fetchRestockWarning, 2000);
+    fetchWeights();
+    fetchFSMState();
+    fetchIngredientImages();
+    fetchStock();
+    fetchRestockWarning();
+    // Restock popup logic
+    let restockBin = 1;
+    let restockData = [];
+    let usedWeights = [];
+    let ingredientInfo = {};
+    let lastRightWeight = null;
+    let lastLeftWeight = null;
+    document.getElementById('restock-btn').onclick = function() {
+        fetch('/publish_toggle_restock_api/?state=Start')
+            .then(() => {
+                restockBin = 1;
+                restockData = [];
+                usedWeights = [];
+                lastRightWeight = null;
+                lastLeftWeight = null;
+                document.getElementById('restock-modal').style.display = 'flex';
+                document.getElementById('restock-step-clear').style.display = '';
+                document.getElementById('restock-step-bin').style.display = 'none';
+            });
+    };
+    // After user confirms bins are cleared, capture initial weight and move to bin 1
+    document.getElementById('restock-clear-ok-btn').onclick = function() {
+        fetch('/weight_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                // Initialize last weights for both scales
+                lastRightWeight = data.right_bin_weight;
+                lastLeftWeight = data.left_bin_weight;
+                usedWeights = [];
+                document.getElementById('restock-step-clear').style.display = 'none';
+                document.getElementById('restock-step-bin').style.display = '';
+                document.getElementById('restock-bin-num').textContent = restockBin;
+                fetchRestockIngredients();
+                fetchIngredientInfo();
+            });
+    };
+    document.getElementById('restock-ok-btn').onclick = function() {
+        // Capture weight for each bin after ingredient is added
+        fetch('/weight_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                const isRight = restockBin <= 3; // bins 1-3 use right scale, 4-6 use left
+                let used = 0;
+                if (isRight) {
+                    const curr = data.right_bin_weight ?? 0;
+                    const prev = (lastRightWeight == null ? curr : lastRightWeight);
+                    used = Math.abs(curr - prev);
+                    lastRightWeight = curr;
+                } else {
+                    const curr = data.left_bin_weight ?? 0;
+                    const prev = (lastLeftWeight == null ? curr : lastLeftWeight);
+                    used = Math.abs(curr - prev);
+                    lastLeftWeight = curr;
+                }
+                usedWeights.push(used);
+                let ingredient = document.getElementById('restock-ingredient-select').value;
+                restockData.push({bin: restockBin, ingredient: ingredient});
+                if (restockBin < TOTAL_BINS) {
+                    restockBin++;
+                    document.getElementById('restock-bin-num').textContent = restockBin;
+                    fetchRestockIngredients();
+                } else {
+                    document.getElementById('restock-modal').style.display = 'none';
+                    showRestockSummary();
+                }
+            });
+    };
+    function fetchRestockIngredients() {
+        // Fetch ingredient metadata and current stock, then combine keys.
+        Promise.all([fetch('/ingredient_info_api/').then(r => r.json()), fetch('/stock_api/?t=' + new Date().getTime()).then(r => r.json())])
+            .then(function(results) {
+                const infoData = results[0] || {};
+                const stockData = results[1] || {};
+                const infoMap = infoData.ingredients || {};
+                const stockMap = stockData.stock || {};
+
+                let select = document.getElementById('restock-ingredient-select');
+                select.innerHTML = '';
+                // Add 'empty' option
+                let emptyOpt = document.createElement('option');
+                emptyOpt.value = 'empty';
+                emptyOpt.textContent = 'empty';
+                select.appendChild(emptyOpt);
+
+                // Build normalized maps for info and stock to handle slight key differences
+                function normalizeKey(s) {
+                    if (!s) return '';
+                    return s.toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                }
+
+                const normToInfo = {};
+                const normToStock = {};
+                Object.keys(infoMap || {}).forEach(k => { const n = normalizeKey(k); normToInfo[n] = k; });
+                Object.keys(stockMap || {}).forEach(k => { const n = normalizeKey(k); normToStock[n] = k; });
+
+                // union of normalized keys
+                const allNormsSet = new Set([...Object.keys(normToInfo), ...Object.keys(normToStock)]);
+                const allNorms = Array.from(allNormsSet);
+
+                // Normalize already-selected ingredients for comparison
+                let selectedNorms = restockData.map(d => normalizeKey(d.ingredient || ''));
+
+                function getTypeForNorm(n) {
+                    const infoOrig = normToInfo[n];
+                    const stockOrig = normToStock[n];
+                    if (infoOrig && infoMap[infoOrig] && infoMap[infoOrig].type) return infoMap[infoOrig].type;
+                    if (stockOrig && stockMap[stockOrig] && stockMap[stockOrig].type) return stockMap[stockOrig].type;
+                    return '';
+                }
+
+                const optionsToShowNorms = allNorms.filter(function(n) {
+                    if (!n) return false;
+                    if (selectedNorms.includes(n)) return false;
+                    const type = (getTypeForNorm(n) || '').toLowerCase();
+                    // If last bin needs bread and no bread selected yet, only show breads
+                    if (restockBin === TOTAL_BINS) {
+                        const breadSelected = selectedNorms.some(sn => {
+                            const t = (getTypeForNorm(sn) || '').toLowerCase();
+                            return t === 'bread';
+                        });
+                        if (!breadSelected) return type === 'bread';
+                    }
+                    if (restockBin === 1 || restockBin === 6) {
+                        return type !== 'shredded';
+                    }
+                    return true;
+                });
+
+                optionsToShowNorms.forEach(function(n) {
+                    const orig = normToInfo[n] || normToStock[n];
+                    if (!orig) return;
+                    let opt = document.createElement('option');
+                    opt.value = orig;
+                    opt.textContent = orig;
+                    select.appendChild(opt);
+                });
+            })
+            .catch(function(err) {
+                console.error('Error fetching restock ingredients', err);
+            });
+    }
+
+    function fetchIngredientInfo() {
+        fetch('/ingredient_info_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                ingredientInfo = {};
+                if (data.ingredients) {
+                    Object.keys(data.ingredients).forEach(function(ing) {
+                        ingredientInfo[ing] = data.ingredients[ing];
+                    });
+                }
+            });
+    }
+    function showRestockSummary() {
+        fetch('/ingredient_info_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                let infoYaml = data.ingredients || {};
+                let summaryHtml = '<ul style="list-style:none;padding-left:0;">';
+                let updateData = [];
+                for (let i = 0; i < TOTAL_BINS; i++) {
+                    const rd = restockData[i] || {};
+                    const ingredient = (rd.ingredient !== undefined) ? rd.ingredient : 'empty';
+                    let displayType = '-';
+                    let totalSlices = 0;
+                    if (ingredient !== 'empty') {
+                        const key = ingredient.trim().toLowerCase().replace(/\s+/g, '_');
+                        const foundKey = Object.keys(infoYaml).find(k => k.trim().toLowerCase() === key);
+                        const info = foundKey ? infoYaml[foundKey] : {};
+                        const usedWeight = usedWeights[i] ?? 0;
+                        displayType = (info && typeof info.type !== 'undefined') ? info.type : '';
+                        // support shredded type (weight per serving) as well as regular weight_per_slice
+                        const weight_per_serving = (info && (typeof info.weight_per_serving !== 'undefined')) ? info.weight_per_serving : (info && typeof info.weight_per_slice !== 'undefined' ? info.weight_per_slice : 1);
+                        if (displayType === 'shredded') {
+                            // For shredded, store total weight and compute servings for display
+                            const totalWeight = usedWeight;
+                            const totalServings = Math.floor(totalWeight / (weight_per_serving || 1));
+                            // Only push non-empty bins to backend payload
+                            updateData.push({
+                                bin: i+1,
+                                ingredient: {
+                                    name: ingredient,
+                                    weight: totalWeight,
+                                    type: displayType,
+                                    weight_per_serving: weight_per_serving,
+                                    bin: i+1
+                                }
+                            });
+                            summaryHtml += `<li><b>Bin ${i+1}:</b> ${ingredient} <b>Type:</b> ${displayType} <b>Total Weight (g):</b> ${totalWeight.toFixed(1)} <b>Servings:</b> ${totalServings}</li>`;
+                            continue;
+                        } else {
+                            const weight_per_slice = (info && typeof info.weight_per_slice !== 'undefined') ? info.weight_per_slice : 1;
+                            totalSlices = Math.round(usedWeight / weight_per_slice);
+                            // Only push non-empty bins to backend payload
+                            updateData.push({
+                                bin: i+1,
+                                ingredient: {
+                                    name: ingredient,
+                                    total_slices: totalSlices,
+                                    type: displayType,
+                                    weight_per_slice: weight_per_slice,
+                                    bin: i+1
+                                }
+                            });
+                        }
+                    }
+                    summaryHtml += `<li><b>Bin ${i+1}:</b> ${ingredient} <b>Type:</b> ${displayType} <b>Total Slices:</b> ${totalSlices}</li>`;
+                }
+                summaryHtml += '</ul>';
+                document.getElementById('restock-summary-block').innerHTML = summaryHtml;
+                document.getElementById('restock-summary-modal').style.display = 'flex';
+                document.getElementById('restock-summary-ok-btn').onclick = function() {
+                    // Publish again when restock is finished
+                    fetch('/publish_toggle_restock_api/?state=End')
+                        .then(() => {
+                            document.getElementById('restock-summary-modal').style.display = 'none';
+                            // Send update to backend
+                            fetch('/update_stock_api/', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(updateData)
+                            });
+                        });
+                };
+            });
+    }
+    function updateActionButtonsState() {
+        fetch('/fsm_state/')
+            .then(response => response.json())
+            .then(function(data) {
+                fetch('/stock_api/')
+                    .then(response => response.json())
+                    .then(function(stockData) {
+                        const restockBtn = document.getElementById('restock-btn');
+                        const recipeBtn = document.getElementById('recipe-btn');
+                        const breadInfo = stockData.stock['bread'] || {};
+                        const breadSlices = breadInfo.slices || 0;
+                        const inRecipeState = data.fsm_state === 'Recipe';
+                        // Disable if not in Recipe state or bread slices < 2
+                        const disable = !inRecipeState || breadSlices < 2;
+                        if (restockBtn) {
+                            restockBtn.disabled = false //!inRecipeState; // remove this later
+                            restockBtn.style.opacity = !inRecipeState ? '0.5' : '1';
+                            restockBtn.style.cursor = !inRecipeState ? 'not-allowed' : 'pointer';
+                        }
+                        if (recipeBtn) {
+                            recipeBtn.disabled = disable;
+                            recipeBtn.style.opacity = disable ? '0.5' : '1';
+                            recipeBtn.style.cursor = disable ? 'not-allowed' : 'pointer';
+                        }
+                    });
+            });
+    }
+    setInterval(updateActionButtonsState, 2000);
+    updateActionButtonsState();
+    </script>
+</body>
+</html>
