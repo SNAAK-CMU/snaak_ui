@@ -427,3 +427,36 @@ def publish_toggle_restock_api(request):
     state = request.GET.get('state', 'Start')
     ROS2NodeManager.get_instance().publish_toggle_restock(state)
     return JsonResponse({'status': 'published', 'state': state})
+
+@require_GET
+def shredded_log_api(request):
+    """
+    API endpoint that reads the shredded ingredient log YAML file and returns
+    ingredient names and their status.
+    """
+    log_path = '/home/snaak/Documents/recipe/shredded_log/shredded_ingredient_log.yaml'
+    
+    try:
+        if not os.path.exists(log_path):
+            return JsonResponse({'error': 'Shredded log file not found'}, status=404)
+        
+        with open(log_path, 'r') as f:
+            data = yaml.safe_load(f)
+        
+        # Extract shredded_ingredients list
+        shredded_ingredients = data.get('shredded_ingredients', [])
+        
+        # Format response with ingredient_name and status
+        result = []
+        for item in shredded_ingredients:
+            result.append({
+                'ingredient_name': item.get('ingredient_name', ''),
+                'status': item.get('status', '')
+            })
+        
+        return JsonResponse({'shredded_ingredients': result})
+    
+    except yaml.YAMLError as e:
+        return JsonResponse({'error': f'YAML parsing error: {str(e)}'}, status=500)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)

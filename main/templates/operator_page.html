@@ -72,8 +72,12 @@
             </div>
         </div>
         <h2>Debug Info</h2>
-        <h3>Sandwich Check:</h3>
+        <h3>Sliced Ingredient Sandwich Check:</h3>
         <div class="section-block" id="sandwich-check" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
+        <h3>Shredded Ingredient Sandwich Check:</h3>
+        <div class="section-block" id="shredded-log-block">
+            <div id="shredded-log-content">Loading...</div>
+        </div>
         <h3>State:</h3>
         <div class="section-block" id="fsm-state" style="font-size:1.2em;font-weight:bold;margin-bottom:24px;">--</div>
         <h3>Weights:</h3>
@@ -162,16 +166,46 @@
                 }
             });
     }
+    function fetchShreddedLog() {
+        fetch('/shredded_log_api/')
+            .then(response => response.json())
+            .then(function(data) {
+                let block = document.getElementById('shredded-log-content');
+                if (data.shredded_ingredients && data.shredded_ingredients.length > 0) {
+                    let html = '<table style="width:100%;border-collapse:collapse;">';
+                    html += '<thead><tr style="background:#e0e0e0;"><th style="padding:8px;text-align:left;border:1px solid #ccc;">Ingredient Name</th><th style="padding:8px;text-align:left;border:1px solid #ccc;">Status</th></tr></thead>';
+                    html += '<tbody>';
+                    data.shredded_ingredients.forEach(function(item) {
+                        const statusColor = item.status === 'PASS' ? '#4caf50' : (item.status === 'FAIL' ? '#f44336' : '#666');
+                        html += '<tr>';
+                        html += '<td style="padding:8px;border:1px solid #ccc;">' + item.ingredient_name + '</td>';
+                        html += '<td style="padding:8px;border:1px solid #ccc;font-weight:bold;color:' + statusColor + ';">' + item.status + '</td>';
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    block.innerHTML = html;
+                } else if (data.error) {
+                    block.innerHTML = '<div style="color:#d32f2f;">Error: ' + data.error + '</div>';
+                } else {
+                    block.innerHTML = '<div style="color:#666;">No shredded ingredient data available.</div>';
+                }
+            })
+            .catch(function(err) {
+                document.getElementById('shredded-log-content').innerHTML = '<div style="color:#d32f2f;">Error fetching shredded log.</div>';
+            });
+    }
     setInterval(fetchWeights, 2000);
     setInterval(fetchFSMState, 2000);
     setInterval(fetchIngredientImages, 2000);
     setInterval(fetchStock, 2000);
     setInterval(fetchRestockWarning, 2000);
+    setInterval(fetchShreddedLog, 2000);
     fetchWeights();
     fetchFSMState();
     fetchIngredientImages();
     fetchStock();
     fetchRestockWarning();
+    fetchShreddedLog();
     // Restock popup logic
     let restockBin = 1;
     let restockData = [];

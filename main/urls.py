@@ -12,4 +12,5 @@ urlpatterns = [
     path('update_stock_api/', views.update_stock_api, name='update_stock_api'),
     path('publish_toggle_restock_api/', views.publish_toggle_restock_api, name='publish_toggle_restock_api'),
     path('restock_check_api/', views.restock_check_api, name='restock_check_api'),
+    path('shredded_log_api/', views.shredded_log_api, name='shredded_log_api'),
 ]
