@@ -173,12 +173,13 @@
                 let block = document.getElementById('shredded-log-content');
                 if (data.shredded_ingredients && data.shredded_ingredients.length > 0) {
                     let html = '<table style="width:100%;border-collapse:collapse;">';
-                    html += '<thead><tr style="background:#e0e0e0;"><th style="padding:8px;text-align:left;border:1px solid #ccc;">Ingredient Name</th><th style="padding:8px;text-align:left;border:1px solid #ccc;">Status</th></tr></thead>';
+                    html += '<thead><tr style="background:#e0e0e0;"><th style="padding:8px;text-align:left;border:1px solid #ccc;">Ingredient Name</th><th style="padding:8px;text-align:left;border:1px solid #ccc;">Weight (g)</th><th style="padding:8px;text-align:left;border:1px solid #ccc;">Status</th></tr></thead>';
                     html += '<tbody>';
                     data.shredded_ingredients.forEach(function(item) {
                         const statusColor = item.status === 'PASS' ? '#4caf50' : (item.status === 'FAIL' ? '#f44336' : '#666');
                         html += '<tr>';
                         html += '<td style="padding:8px;border:1px solid #ccc;">' + item.ingredient_name + '</td>';
+                        html += '<td style="padding:8px;border:1px solid #ccc;">' + (item.weight !== undefined ? Number(item.weight).toFixed(1) : '--') + '</td>';
                         html += '<td style="padding:8px;border:1px solid #ccc;font-weight:bold;color:' + statusColor + ';">' + item.status + '</td>';
                         html += '</tr>';
                     });

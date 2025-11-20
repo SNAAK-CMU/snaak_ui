@@ -451,6 +451,7 @@ def shredded_log_api(request):
         for item in shredded_ingredients:
             result.append({
                 'ingredient_name': item.get('ingredient_name', ''),
+                'weight': item.get('weight', 0),
                 'status': item.get('status', '')
             })
         
